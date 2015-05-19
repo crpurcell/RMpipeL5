@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-clean on the Faraday dispersion Functions in a         #
 #           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 21-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -21,16 +21,27 @@ import numpy as np
 import sqlite3
 from scipy.stats.stats import nanmedian
 
-from Imports.util_PPC import *
-from Imports.util_DB import *
-from Imports.module_RM_clean import *
-from Imports.module_measure_fdf import *
+from Imports.util_PPC import PipelineInputs
+from Imports.util_PPC import fail_not_exists
+from Imports.util_PPC import fail_not_exists
+from Imports.util_PPC import log_wr
+from Imports.util_PPC import log_fail
+from Imports.util_PPC import load_vector_fail
+from Imports.util_PPC import set_statusfile
+
+from Imports.util_DB import register_sqlite3_numpy_dtypes
+from Imports.util_DB import select_into_arr
+from Imports.util_DB import insert_arr_db
+from Imports.util_DB import update_arr_db
+
+from Imports.module_RM_clean import mod_do_RMclean
+from Imports.module_measure_fdf import mod_measure_FDF
 
 # Constants
 C = 2.99792458e8
 
 # Turn off print statements buffering
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+sys.stdout = os.fdopen(sys.stdout.fileno(), "w", 0)
 
 # Map numpy data-types to the limited sqlite3 data-types
 register_sqlite3_numpy_dtypes()
@@ -50,10 +61,10 @@ def main():
 
     # Parse the command line options
     parser = argparse.ArgumentParser(description=descStr)
-    parser.add_argument('sessionPath', metavar='PATH/TO/SESSION', nargs=1,
-                        help='Path to the new session directory [no default]')
-    parser.add_argument('-o', dest='doOverwrite', action='store_true',
-                        help='Overwrite old RM-clean results')
+    parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
+                        help="Path to the new session directory [no default]")
+    parser.add_argument("-o", dest="doOverwrite", action="store_true",
+                        help="Overwrite old RM-clean results")
     args = parser.parse_args()
     sessionPath = args.sessionPath[0]
     doOverwrite = args.doOverwrite
@@ -65,57 +76,57 @@ def main():
 #-----------------------------------------------------------------------------#
 def run_RM_clean(sessionPath, doOverwrite=False):
 
-    sessionPath = sessionPath.rstrip('/')
+    sessionPath = sessionPath.rstrip("/")
     
     # Check the required directory structure exists or exit
     sessionRootDir, sessionName = os.path.split(sessionPath)
-    sessionRootDir = '.' if sessionRootDir=='' else sessionRootDir
-    fail_not_exists(sessionPath, 'directory')
+    sessionRootDir = "." if sessionRootDir=="" else sessionRootDir
+    fail_not_exists(sessionPath, "directory")
     
-    # Set the session status file to '1'
+    # Set the session status file to "1"
     # TODO: set this in the database
-    statusFile = sessionPath + '/status.txt'
+    statusFile = sessionPath + "/status.txt"
     set_statusfile(statusFile, 1)
     
     # Open the existing logfile to append to
-    logFile = sessionPath + '/pipeline.log'
-    LF = open(logFile, 'a', 0)
+    logFile = sessionPath + "/pipeline.log"
+    LF = open(logFile, "a", 0)
     log_wr(LF, ">>> Beginning RM-clean.")
 
     # Read and parse the pipeline input file
-    inParmFile = sessionPath + '/inputs.config'
-    fail_not_exists(inParmFile, 'file', LF)
+    inParmFile = sessionPath + "/inputs.config"
+    fail_not_exists(inParmFile, "file", LF)
     try:
         pipeInpObj = PipelineInputs(inParmFile)
         pDict = pipeInpObj.get_flat_dict()
-        log_wr(LF, 'Successfully parsed the input parameter file.')
+        log_wr(LF, "Successfully parsed the input parameter file.")
     except Exception:
-        log_fail(LF, 'Err: Failed to parse the input parameter file.')
+        log_fail(LF, "Err: Failed to parse the input parameter file.")
 
     # Verify that the parameter file has all the correct entries
     missingLst = pipeInpObj.inparm_verify()
     if len(missingLst)>0:
-        log_fail(LF, 'Err: Required input parameters missing. - %s' %
+        log_fail(LF, "Err: Required input parameters missing. - %s" %
                  missingLst)
     else:
-        log_wr(LF, 'All required input parameters present.')
+        log_wr(LF, "All required input parameters present.")
 
     # Check that the input/output data directory exists
-    specPath = sessionPath + '/OUT'
-    fail_not_exists(specPath, 'directory', LF)
+    specPath = sessionPath + "/OUT"
+    fail_not_exists(specPath, "directory", LF)
 
     # Check that the specified dataset exists
-    dataPath = pDict['dataPath'].rstrip('/')
-    fail_not_exists(dataPath, 'directory', LF)
+    dataPath = pDict["dataPath"].rstrip("/")
+    fail_not_exists(dataPath, "directory", LF)
 
     # Get the frequency vector from the text file
-    inFreqFile = dataPath + '/freqs_Hz.txt'
-    fail_not_exists(inFreqFile, 'file', LF)
+    inFreqFile = dataPath + "/freqs_Hz.txt"
+    fail_not_exists(inFreqFile, "file", LF)
     freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
     
     # Connect to the database
-    dbFile = sessionPath + '/session.sqlite'
+    dbFile = sessionPath + "/session.sqlite"
     try:
         log_wr(LF, "> Connecting to existing DB file '%s' ..." % dbFile)
         conn = sqlite3.connect(dbFile)
@@ -139,17 +150,17 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     cleanRec = mod_do_RMclean(specRec,
                               specPath,
                               specPath,
-                              float(pDict['cleanCutoff_sigma']),
-                              int(pDict['maxCleanIter']),
-                              float(pDict['gain']),
+                              float(pDict["cleanCutoff_sigma"]),
+                              int(pDict["maxCleanIter"]),
+                              float(pDict["gain"]),
                               doOverwrite=doOverwrite,
                               LF=LF)
     
     # Write the RMSF parameters to the database
     cursor.execute("DELETE FROM cleanFDFparms")
-    insert_arr_db(cursor, cleanRec, 'cleanFDFparms')
+    insert_arr_db(cursor, cleanRec, "cleanFDFparms")
     conn.commit()
-    log_wr(LF, 'Database updated with CLEANING parameters.')
+    log_wr(LF, "Database updated with CLEANING parameters.")
     
     # Load the spectral & RMSF parameters into memory
     sql = """
@@ -172,14 +183,14 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     fdfRec = mod_measure_FDF(catRec,
                              specPath,
                              lamSqArr_m2,
-                             float(pDict['thresholdSignalPI_sigma']),
-                             fileSuffix='_cleanFDF.dat',
+                             float(pDict["thresholdSignalPI_sigma"]),
+                             fileSuffix="_cleanFDF.dat",
                              LF=LF)
 
     # Update the table with the FDF measurements
-    update_arr_db(cursor, fdfRec, 'cleanFDFparms', 'uniqueName')
+    update_arr_db(cursor, fdfRec, "cleanFDFparms", "uniqueName")
     conn.commit()
-    log_wr(LF, 'Database updated with FDF parameters.')
+    log_wr(LF, "Database updated with FDF parameters.")
     
     # Close the connection to the database
     cursor.close()

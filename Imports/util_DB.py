@@ -5,8 +5,7 @@
 #                                                                             #
 # PURPOSE:  Functions to interface with a sqlite3 database.                   #
 #                                                                             #
-#                                                                             #
-# MODIFIED: 28-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -26,7 +25,7 @@ import re
 import numpy as np
 import sqlite3
 
-from util_rec import *
+from util_rec import fields_view
 
 
 #-----------------------------------------------------------------------------#
@@ -64,6 +63,7 @@ def create_db(dbFile, createSQLdict, LF=None):
         return False
     
     return True
+
 
 #-----------------------------------------------------------------------------#
 def insert_arr_db(cursor, recArr, tabName, fieldNameLst=None,

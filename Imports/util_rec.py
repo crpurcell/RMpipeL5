@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Functions for operating on python record arrays.                  #
 #                                                                             #
-# MODIFIED: 28-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -36,9 +36,8 @@ def pyify(typestr):
 #-----------------------------------------------------------------------------#
 def irecarray_to_py(a):
     """
-    Slow conversion of a recarray into a list of records with python
-    types.
-    Get the field names from :attr:`a.dtype.names`.
+    Slow conversion of a recarray into a list of records with python types.
+    Get the field names from :attr:'a.dtype.names'.
     :Returns: iterator so that one can handle big input arrays
     """
     pytypes = [pyify(typestr) for name,typestr in a.dtype.descr]

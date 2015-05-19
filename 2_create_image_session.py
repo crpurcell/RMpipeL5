@@ -8,7 +8,7 @@
 #                                                                             #
 # PURPOSE:  Create a new pipeline processing session in a new directory.      #
 #           A dataset and source catalogue must be chosen at this time and    #
-#           linked to the session. Data must have been processed using        #
+#           linked to the session. The data must have been processed using    #
 #           the 'verify_image_data.py' script. The ASCII catalogue file is    #
 #           described by a SQL statement in the optional CATFORMATFILE and    #
 #           defaults to the format produced by the Aegean source-finder.      #
@@ -16,7 +16,7 @@
 #           input file with sensible input parameters determined from the     #
 #           properties of the data.                                           #
 #                                                                             #
-# MODIFIED: 30-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -49,7 +49,7 @@ from Imports.util_DB import schema_to_tabledef
 C = 2.99792458e8
 
 # Turn off print statements buffering
-sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+sys.stdout = os.fdopen(sys.stdout.fileno(), "w", 0)
 
 # Map numpy data-types to the limited sqlite3 data-types
 register_sqlite3_numpy_dtypes()
@@ -78,17 +78,17 @@ def main():
     
     # Parse the command line options
     parser = argparse.ArgumentParser(description=descStr)
-    parser.add_argument('-o', dest='doOverwrite', action='store_true',
-                        help='Overwrite (delete) existing session')
-    parser.add_argument('dataPath', metavar='PATH/TO/DATA', nargs=1,
-                        help='Path to data directory [no default]')
-    parser.add_argument('sessionPath', metavar='PATH/TO/SESSION', nargs=1,
-                        help='Path to the new session directory [no default]')
-    parser.add_argument('catPath', metavar='CATFILE', nargs=1,
-                        help='Name of the ASCII catalogue file [no default]')
-    parser.add_argument('catFormatPath', metavar='CATFORMATFILE', nargs='?',
-                        default='Imports/templates/catDescDefault.sql',
-                  help='Name of the file describing the catalogue (optional)')
+    parser.add_argument("-o", dest="doOverwrite", action="store_true",
+                        help="Overwrite (delete) existing session")
+    parser.add_argument("dataPath", metavar="PATH/TO/DATA", nargs=1,
+                        help="Path to data directory [no default]")
+    parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
+                        help="Path to the new session directory [no default]")
+    parser.add_argument("catPath", metavar="CATFILE", nargs=1,
+                        help="Name of the ASCII catalogue file [no default]")
+    parser.add_argument("catFormatPath", metavar="CATFORMATFILE", nargs="?",
+                        default="Imports/templates/catDescDefault.sql",
+                  help="Name of the file describing the catalogue (optional)")
     args = parser.parse_args()
     doOverwrite = args.doOverwrite
     dataPath = args.dataPath[0]
@@ -109,14 +109,14 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     populate a default pipeline driving file with sensible values.
     """
     
-    dataPath = dataPath.rstrip('/')
-    sessionPath = sessionPath.rstrip('/')
-    catPath = catPath.rstrip('/')
+    dataPath = dataPath.rstrip("/")
+    sessionPath = sessionPath.rstrip("/")
+    catPath = catPath.rstrip("/")
     pDict = {}
         
     # Create a new session directory. Erase, or exit if it already exists
     sessionRootDir, sessionName = os.path.split(sessionPath)
-    sessionRootDir = '.' if sessionRootDir=='' else sessionRootDir
+    sessionRootDir = "." if sessionRootDir=="" else sessionRootDir
     if os.path.exists(sessionPath):
         if doOverwrite:
             print "Deleting exiting session '%s'."  % sessionPath
@@ -126,22 +126,26 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
             print "Use -o option to overwrite."
             sys.exit()
     print "Creating new session directory '%s'." % sessionPath
-    os.mkdir(sessionPath)
+    dirs = sessionPath.split("/")
+    for i in range(1, len(dirs)+1):
+        dirStr = "/".join(dirs[:i])
+        if not os.path.exists(dirStr):
+            os.mkdir(dirStr)
 
     # Remove the old logfile and open a new one
-    logFile = sessionPath + '/pipeline.log'
-    LF = open(logFile, 'w', 0)
+    logFile = sessionPath + "/pipeline.log"
+    LF = open(logFile, "w", 0)
     try:
         log_wr(LF, "Logging messages for session to '%s'." % logFile)
-        log_wr(LF, "Time: %s" % time.ctime() )
+        log_wr(LF, "Start time: %s" % time.ctime() )
     except Exception:
         print "Err: Failed to open the log file '%s'." % logFile
         sys.exit()
     
     # Check other inputs exist
-    dataPath = '.' if dataPath=='' else dataPath
-    fail_not_exists(dataPath, 'directory')
-    pDict['dataPath'] = dataPath
+    dataPath = "." if dataPath=="" else dataPath
+    fail_not_exists(dataPath, "directory")
+    pDict["dataPath"] = dataPath
     catRootDir, catFile = os.path.split(catPath)
     fail_not_exists(catPath)
     catFormatRootDir, catFormatFile = os.path.split(catFormatPath)
@@ -150,16 +154,16 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     # Check that the catalogue description file has X and Y columns
     log_wr(LF, "Parsing catalogue description file '%s'" % catFormatPath)
     catDefDict, catSQLdict = schema_to_tabledef(catFormatPath,
-              addColDict={'sourceCat':'uniqueName varchar(20) PRIMARY KEY'})
+              addColDict={"sourceCat":"uniqueName varchar(20) PRIMARY KEY"})
     catHasX = False
     catHasY = False
     countUniqueName = 0
-    for e in catDefDict['sourceCat']:
-        if e[0]=='x_deg':
+    for e in catDefDict["sourceCat"]:
+        if e[0]=="x_deg":
             catHasX = True
-        if e[0]=='y_deg':
+        if e[0]=="y_deg":
             catHasY = True
-        if e[0]=='uniqueName':
+        if e[0]=="uniqueName":
             countUniqueName += 1
     if catHasX is False:
         log_fail(LF, "Catalogue description missing 'x_deg' column.")
@@ -173,7 +177,7 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     # Read the input catalogue to a record array
     log_wr(LF, "Reading the catalogue into memory ...")
     try:
-        catRec = cat_to_recarray(catPath, catDefDict['sourceCat'],
+        catRec = cat_to_recarray(catPath, catDefDict["sourceCat"],
                                  delim=" ", LF=LF)
     except Exception:
         log_wr(LF, "Failed to parse or read catalogue.")
@@ -182,17 +186,17 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     # Populate the unique-name field
     log_wr(LF, "Assigning a unique name to each entry (position based).")
     for i in range(len(catRec)):
-        catRec[i]['uniqueName'] = \
-             deg2dms(catRec[i]['x_deg']/15.0, delim='', nPlaces=1) + \
-             deg2dms(catRec[i]['y_deg'], delim='', doSign=True, nPlaces=2)
+        catRec[i]["uniqueName"] = \
+             deg2dms(catRec[i]["x_deg"]/15.0, delim="", nPlaces=1) + \
+             deg2dms(catRec[i]["y_deg"], delim="", doSign=True, nPlaces=2)
 
     # Read the SQL schema for the internal database
-    schemaFile = 'Imports/templates/DBSchema.sql'
-    log_wr(LF, "Parsing the internal DB schema from '%s'" % schemaFile)
+    schemaFile = "Imports/templates/DBSchema.sql"
+    log_wr(LF, "Parsing the database schema from '%s'" % schemaFile)
     tableDefDict, tableSQLdict = schema_to_tabledef(schemaFile)
     
     # Create a new persistent database using the table schema
-    dbFile = sessionPath + '/session.sqlite'
+    dbFile = sessionPath + "/session.sqlite"
     success = create_db(dbFile, dict(catSQLdict.items()+tableSQLdict.items()))
     if success:
         log_wr(LF, "Successfully created the database '%s'." % dbFile)
@@ -204,7 +208,7 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     conn = sqlite3.connect(dbFile)
     cursor = conn.cursor()
     try:
-        insert_arr_db(cursor, catRec, 'sourceCat')
+        insert_arr_db(cursor, catRec, "sourceCat")
         conn.commit()
     except Exception:
         log_wr(LF, "Err: Failed to insert the catalogue into the database.")
@@ -213,24 +217,24 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     conn.close()
     
     # Check for the frequency sampling file in the data directory
-    inFreqFile = dataPath + '/freqs_Hz.txt'
+    inFreqFile = dataPath + "/freqs_Hz.txt"
     if os.path.exists(inFreqFile):
-        pDict['inFreqFile '] = 'freqs_Hz.txt'
+        pDict["inFreqFile"] = "freqs_Hz.txt"
     else:
         log_fail(LF, "File containing the frequency vector is missing: '%s'." \
                  % inFreqFile)
         
     # Check for the datatype file in the data directory
-    inTypeFile = dataPath + '/dataType.txt'
+    inTypeFile = dataPath + "/dataType.txt"
     if os.path.exists(inTypeFile):
-        pDict['inTypeFile '] = 'dataType.txt'
+        pDict["inTypeFile "] = "dataType.txt"
     else:
         log_fail(LF, "File containing the data type is missing: '%s'." \
                  % inTypeFile)
 
     # Create a new pipeline input object. Default parameters are taken from
     # the file 'Imports/templates/defaultInputs.config'
-    pipeInpObj = PipelineInputs('Imports/templates/defaultInputs.config')
+    pipeInpObj = PipelineInputs("Imports/templates/defaultInputs.config")
 
     # Set the dataset in the input object and calculate the defaults
     log_wr(LF, "Calculating pipeline inputs for linked dataset.")
@@ -243,28 +247,30 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         log_fail(LF, traceback.format_exc())
 
     # Feedback
-    log_wr(LF, "> min(dLambda-squared) = %.3g m^2" % float(pD['dLambdaSqMin_m2']))
-    log_wr(LF, "> max(phi) = %.1f rad m^-2" % float(pD['stopPhi_radm2']))
-    log_wr(LF, "> dPhi = %.1f" % float(pD['dPhi_radm2']))
-    log_wr(LF, "> nChan(phi) = %d" % int(pD['nChanRM']))
+    log_wr(LF, "> min(dLambda-squared) = %.3g m^2" % \
+           float(pD["dLambdaSqMin_m2"]))
+    log_wr(LF, "> max(phi) = %.1f rad m^-2" % float(pD["stopPhi_radm2"]))
+    log_wr(LF, "> dPhi = %.1f" % float(pD["dPhi_radm2"]))
+    log_wr(LF, "> nChan(phi) = %d" % int(pD["nChanRM"]))
         
     # Point to the input file for the current session and write to disk
-    pipeInFile = sessionPath + '/inputs.config'
+    pipeInFile = sessionPath + "/inputs.config"
     log_wr(LF, "Writing pipeline driving file to '%s'" % pipeInFile)
     pipeInpObj.configFile = pipeInFile
     pipeInpObj.write_file()
     log_wr(LF, "> Edit this file to make changes to input parameters.")
     
     # Copy the catalogue and format file to the session directory
-    log_wr(LF, "Copying the catalogue and format file to the session:")
-    log_wr(LF, "> '%s', '%s'" % (catFile, catFormatFile))
-    shutil.copyfile(catPath, sessionPath + '/' + catFile)
-    shutil.copyfile(catFormatPath, sessionPath + '/' + catFormatFile)
-    
-    shutil.copyfile(catPath, sessionPath + '/' + catFile)
-    shutil.copyfile(inFreqFile, sessionPath + '/freqs_Hz.txt')
-    shutil.copyfile(inTypeFile, sessionPath + '/dataType.txt')
-    
+    log_wr(LF, "Copying dataset metadata files to the session directory:")
+    log_wr(LF, "> '%s' -> '%s'" % (catPath, sessionPath + "/" + catFile))
+    shutil.copyfile(catPath, sessionPath + "/" + catFile)
+    log_wr(LF, "> '%s' -> '%s'" % (catFormatPath,
+                                   sessionPath + "/" + catFormatFile)) 
+    shutil.copyfile(catFormatPath, sessionPath + "/" + catFormatFile)
+    log_wr(LF, "> '%s' -> '%s'" % (inFreqFile, sessionPath + "/freqs_Hz.txt"))
+    shutil.copyfile(inFreqFile, sessionPath + "/freqs_Hz.txt")
+    log_wr(LF, "> '%s' -> '%s'" % (inTypeFile, sessionPath + "/dataType.txt"))
+    shutil.copyfile(inTypeFile, sessionPath + "/dataType.txt")
 
 
 #-----------------------------------------------------------------------------#

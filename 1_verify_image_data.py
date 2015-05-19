@@ -10,14 +10,14 @@
 #           simple sanity checks and write vectors of frequency, channel and  #
 #           file to disk.                                                     #
 #                                                                             #
-# MODIFIED: 21-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
 # Default patterns to match the Stokes I Q and U files.
-patIdefault = '*.iconvol.fits'
-patQdefault = '*.qconvol.fits'
-patUdefault = '*.uconvol.fits'
+patIdefault = '*I.fits'
+patQdefault = '*Q.fits'
+patUdefault = '*U.fits'
 
 #-----------------------------------------------------------------------------#
 
@@ -111,6 +111,10 @@ def verify_image_data(dataPath, patI, patQ, patU):
     if nIfiles==0:
         print "Err: No matching files found."
         sys.exit()
+    if nIfiles<=3:
+        print "Err: Less than three matching files found."
+        print "This means there are <3 channels in your dataset!"
+        sys.exit()
         
     # Lists to store chan, freq
     freqLst = []
@@ -179,26 +183,28 @@ def verify_image_data(dataPath, patI, patQ, patU):
 
     # Save the list of I,Q & U files
     dataFile = dataPath + '/fileLstI.txt'
-    print "Saving list of Stokes I files to '%s'." % dataFile
+    print "Saving ordered list of Stokes I files to '%s'." % dataFile
     if os.path.exists(dataFile):
         os.remove(dataFile)
     np.savetxt(dataFile, dataILstS, fmt='%s')
     dataFile = dataPath + '/fileLstQ.txt'
-    print "Saving list of Stokes Q files to '%s'." % dataFile
+    print "Saving ordered list of Stokes Q files to '%s'." % dataFile
     if os.path.exists(dataFile):
         os.remove(dataFile)
     np.savetxt(dataFile, dataQLstS, fmt='%s')
     dataFile = dataPath + '/fileLstU.txt'
-    print "Saving list of Stokes U files to '%s'." % dataFile
+    print "Saving ordered list of Stokes U files to '%s'." % dataFile
     if os.path.exists(dataFile):
         os.remove(dataFile)
     np.savetxt(dataFile, dataULstS, fmt='%s')
 
-    # Note the type of data in a file
+    # Note the type of data in a file (placeholder: we may add other types)
     typeFile = dataPath + '/dataType.txt'
+    print "Noting dataType=FITS_planes in file '%s'." % typeFile
     FH = open(typeFile, 'w')
     FH.write("FITS_planes\n")
     FH.close()
+
 
 #-----------------------------------------------------------------------------#
 if __name__=="__main__":

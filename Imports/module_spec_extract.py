@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy, scipy and astropy modules.                    #
 #                                                                             #
-# MODIFIED: 28-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # TODO:                                                                       #
 #           * Catch errors with extraction, fitting and propagate into        #
@@ -20,12 +20,23 @@ import os
 import sys
 import math as m
 import numpy as np
-from mpfit import mpfit
+import traceback
 import astropy.io.fits as pf
 import astropy.wcs.wcs as pw
 
-from util_PPC import *
-from util_FITS import *
+from mpfit import mpfit
+
+from util_PPC import log_wr
+from util_PPC import log_fail
+from util_PPC import calc_sumbox_norm
+from util_PPC import nanmedian
+from util_PPC import MAD
+from util_PPC import poly5
+
+from util_FITS import mkWCSDict
+from util_FITS import get_beam_from_header
+from util_FITS import get_beam_area
+from util_FITS import strip_fits_dims
 
 
 #-----------------------------------------------------------------------------#
@@ -76,9 +87,10 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
         log_wr(LF, 'Successfully read a sample FITS header (%s).' %
                fitsLstQ[0])
     except Exception:
-        log_fail(LF, 'Err: Failed to read a sample FITS file header (%s).' %
-                 fitsLstQ[0])
-    
+        log_wr(LF, 'Err: Failed to read a sample FITS file header (%s).' %
+                 fitsLstQ[0])        
+        log_fail(LF, traceback.format_exc())
+        
     # Calculate the normalisation to be applied to extracted spectra
     # Currently use geometric mean FWHM = sqrt(bmaj*bmin)
     try:
@@ -88,7 +100,8 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
         log_wr(LF, '> Beam FWHM=%.2f pixels, sumBox=%d, fNorm=%.5f' % 
                (beamFWHM_pix, sumBox_pix, fNormSumbox))
     except Exception:
-        log_fail(LF, 'Err: Failed to calculate beam/f_norm from header.')
+        log_wr(LF, 'Err: Failed to calculate beam/f_norm from header.')
+        log_fail(LF, traceback.format_exc())
 
     # Determine the size of the cutout box to use
     beamArea_pix = get_beam_area(bmaj, bmin, wcsDict['pixscale'])
@@ -182,6 +195,7 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
             freqArr_Hz, rmsSpecU = np.loadtxt(rmsQFileLst[i], unpack=True,
                                               dtype='f8')
         except Exception:
+            log_wr(LF, ">>> Warn: failed to load extracted spectrum.")
             specRec[i]['extractStatus'] = 0
             continue
 
@@ -199,8 +213,9 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
             specImodel = poly5(p)(freqArr_Hz/1e9)
         except Exception:
             fitIstatus= 0
+            
         if fitIstatus<1:
-            log_wr(LF, "> Warning: I fit failed on '%s'." %
+            log_wr(LF, "> Warn: I fit failed on '%s'." %
                    catRec[i]['uniqueName'] )
             specImodel = np.ones_like(specI)
             p = [0, 0, 0, 0, 0, 1]
@@ -364,6 +379,8 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
                 dataSpec *= fNormSumbox
                 
             except Exception:
+                log_wr(LF, ">>> Warn: failed to read FITS array.")
+                log_wr(LF, traceback.format_exc())
                 rms = None
                 dataSpec = None
 
@@ -388,7 +405,6 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
                                  ['_rmsSpec' + suffix + '.dat']*len(x_pix)))
 
     return specFileLst, rmsFileLst
-
     
 
 #-----------------------------------------------------------------------------#

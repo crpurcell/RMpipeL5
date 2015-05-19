@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and scipy modules.                             #
 #                                                                             #
-# MODIFIED: 15-Sep-2014 by C.Purcell.                                         #
+# MODIFIED: 19-May-2015 by C.Purcell.                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -17,6 +17,7 @@
 #  get_RMSF            ... return the RMSF given a weight and sampling        #
 #  extrap              ... interpolate and extrapolate an array               #
 #  fit_rmsf            ... fit a Gaussian to the main lobe of the RMSF        #
+#  detect_peak         ... detect the extent of a peak in a 1D array          #
 #                                                                             #
 #=============================================================================#
 
@@ -134,7 +135,6 @@ def do_rmclean(dirtyFDF, phiArr, lamSqArr, cutoff, maxIter=1000, gain=0.1,
     """
     Perform Hogbom (Heald) clean on a single RM spectrum.
     """
-
 
     # Initial sanity checks --------------------------------------------------#
    
@@ -491,30 +491,6 @@ def fit_rmsf(xData, yData, thresh=0.3):
 
     return mp.params, mp.status
 
-    
-#-----------------------------------------------------------------------------#
-def detect_peak_old(a):
-    """
-    Detect the extent of the peak in the array by looking for where the slope
-    turns over.  The highest peak is detected and data followed until the
-    first null. Assumes that the peak is well sampled and can only have two
-    adjacent peak channels.
-    """
-    
-    iPk = np.argmax(a)
-    d = np.diff(a)
-    off = 0
-    if d[iPk]>=0.0:
-        off = 1
-    dl = np.flipud(d[:iPk])    
-    dr = d[off+iPk:]
-    iL = iPk - np.min(np.where(dl<=0.0)) + 1
-    iR = iPk + off + np.min(np.where(dr>=0.0))
-    msk = np.zeros_like(a)
-    msk[iL:iR] = 1
-    
-    return msk
-    
 
 #-----------------------------------------------------------------------------#
 def detect_peak(a, thresh=0.3):

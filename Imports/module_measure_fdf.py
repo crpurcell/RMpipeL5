@@ -5,9 +5,10 @@
 #                                                                             #
 # PURPOSE:  Make measurements on a catalogue of Faraday dispersion functions. #
 #                                                                             #
-# MODIFIED: 26-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # TODO:                                                                       #
+#  * Set a flag if the peak is within RMSF_FWHM/2 of the FDF edge.            #
 #                                                                             #
 #=============================================================================#
 
@@ -23,6 +24,7 @@ from util_PPC import log_wr
 # Constants
 C = 2.99792458e8
 
+
 #-----------------------------------------------------------------------------#
 def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
                     fileSuffix='_dirtyFDF.dat', LF=None):
@@ -32,7 +34,7 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
         LF = sys.stdout        
     fail_not_exists(dataDir, 'directory', LF)
 
-    # Create a recArray to store RMSF and FDF properties
+    # Create a numpy recArray to store RMSF and FDF properties
     dType = [('uniqueName', 'a20'),
              ('phiPeakPIchan_rm2', 'f8'),
              ('dPhiPeakPIchan_rm2', 'f8'),
@@ -75,7 +77,7 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
         inFile = dataDir + '/' + catRec[i]['uniqueName'] + fileSuffix
         phiArr, FDFreal, FDFimag = np.loadtxt(inFile, unpack=True)
         FDF = (FDFreal + 1j * FDFimag)
-        mDict = measure_FDF_parms1(FDF,
+        mDict = measure_FDF_parms(FDF,
                                    phiArr,
                                    catRec[i]['fwhmRMSF'],
                                    lamSqArr_m2,
@@ -92,6 +94,7 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
                    mDict['snrPIchan'])
 
         # TODO: Check if the peak is within half the RMSF of the edge
+        #       set a flag saying detection is near edge
 
         
         # Write the measurements to the catalogue
@@ -107,7 +110,7 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
 
 
 #-----------------------------------------------------------------------------#
-def measure_FDF_parms1(FDF, phiArr, fwhmRMSF, lamSqArr_m2, lam0Sq, dQU,
+def measure_FDF_parms(FDF, phiArr, fwhmRMSF, lamSqArr_m2, lam0Sq, dQU,
                       snrDoBiasCorrect=5.0):
     """
     Measure standard parameters of a Faraday Dispersion Function.
@@ -224,75 +227,6 @@ def measure_FDF_parms1(FDF, phiArr, fwhmRMSF, lamSqArr_m2, lam0Sq, dQU,
              'polAngle0Fit_deg': polAngle0Fit_deg,
              'dPolAngle0Fit_deg': dPolAngle0Fit_deg}
 
-    return mDict
-
-
-#-----------------------------------------------------------------------------#
-def measure_FDF_parms(FDF, phiArr, rms, fwhmRMSF, snrDoBiasCorrect=5.0):
-    """
-    Measure standard parameters of a FDF spectum.
-    """
-    
-    # Determine the peak channel in the FDF, its amplitude and Phi
-    absFDF = np.abs(FDF)
-    ampPeakPIchan = np.nanmax(absFDF)
-    indxPeakPIchan = np.nanargmax(absFDF)
-    phiPeakPIchan = phiArr[indxPeakPIchan]
-    dPhiPeakPIchan = fwhmRMSF * rms / (2.0 * ampPeakPIchan)
-    snrPIchan = ampPeakPIchan / rms
-        
-    # Correct the peak for polarisation bias (POSSUM report 11)
-    ampPeakPIchanEff = None
-    if snrPIchan >= snrDoBiasCorrect:
-        ampPeakPIchanEff = m.sqrt(ampPeakPIchan**2.0 - 2.3 * rms**2.0)
-
-    # Calculate the polarisation angle from the channel
-    polAngleChan_deg = m.degrees(m.atan2(FDF.imag[indxPeakPIchan],
-                                         FDF.real[indxPeakPIchan]))
-
-    # Determine the peak in the FDF, its amplitude and Phi using a
-    # 3-point parabolic interpolation
-    phiPeakPIfit = None
-    dPhiPeakPIfit = None
-    ampPeakPIfit = None
-    dAmpPeakPIfit = None
-    snrPIfit = None
-    ampPeakPIfitEff = None
-    if indxPeakPIchan > 0 and indxPeakPIchan < len(FDF)-1:
-        phiPeakPIfit, ampPeakPIfit = \
-                      calc_parabola_vertex(phiArr[indxPeakPIchan-1],
-                                           absFDF[indxPeakPIchan-1],
-                                           phiArr[indxPeakPIchan],
-                                           absFDF[indxPeakPIchan],
-                                           phiArr[indxPeakPIchan+1],
-                                           absFDF[indxPeakPIchan+1])
-        dPhiPeakPIfit = fwhmRMSF * rms / (2.0 * ampPeakPIfit)
-        dAmpPeakPIfit = m.sqrt(2.0 * ampPeakPIfit**2.0 / rms**2.0)
-        snrPIfit = ampPeakPIfit / rms
-
-        # Correct the peak for polarisation bias (POSSUM report 11)
-        if snrPIfit >= snrDoBiasCorrect:
-            ampPeakPIfitEff = m.sqrt(ampPeakPIfit**2.0
-                                     - 2.3 * rms**2.0)
-
-        # Calculate the polarisation angle from the channel
-        
-
-            
-    mDict = {'phiPeakPIchan_rm2': phiPeakPIchan,
-             'dPhiPeakPIchan_rm2': dPhiPeakPIchan,
-             'ampPeakPIchan_Jybm': ampPeakPIchan,
-             'ampPeakPIchanEff_Jybm': ampPeakPIchanEff,
-             'dAmpPeakPIchan_Jybm': rms,
-             'snrPIchan': snrPIchan,
-             'indxPeakPIchan': indxPeakPIchan,
-             'phiPeakPIfit_rm2': phiPeakPIfit,
-             'dPhiPeakPIfit_rm2': dPhiPeakPIfit,
-             'ampPeakPIfit_Jybm': ampPeakPIfit,
-             'ampPeakPIfitEff_Jybm': ampPeakPIfitEff,
-             'dAmpPeakPIfit_Jybm': rms,
-             'snrPIfit': snrPIfit}
-    
     return mDict
 
 

@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Common function for plotting fits images.                         #
 #                                                                             #
-# MODIFIED: 11-Feb-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -20,7 +20,6 @@ import math as m
 import numpy as np
 import astropy.io.fits as pf
 import astropy.wcs.wcs as pw
-
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
@@ -29,7 +28,8 @@ from matplotlib.patches import Ellipse
 from matplotlib.patches import Polygon
 
 from normalize import APLpyNormalize
-from util_FITS import *
+from util_FITS import strip_fits_dims
+from util_FITS import mkWCSDict
 from util_PPC  import calc_stats
 
 

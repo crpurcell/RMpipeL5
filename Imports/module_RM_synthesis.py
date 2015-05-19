@@ -5,10 +5,11 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 28-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
-# TODO:     * Catch errors in non-fatal way                                   #
-#           * If doOverwrite is not set, read and return the existing result  #
+# TODO:                                                                       #
+#   * Catch errors in non-fatal way                                           #
+#   * If doOverwrite is not set, read and return the existing result          #
 #                                                                             #
 #=============================================================================#
 import os
@@ -16,11 +17,15 @@ import sys
 import math as m
 import numpy as np
 
-from util_RM import *
-from util_PPC import log_fail
-from util_PPC import log_wr
 from util_PPC import fail_not_exists
+from util_PPC import log_wr
+from util_PPC import log_fail
 from util_PPC import poly5
+
+from util_RM import do_rmsynth
+
+# Constants
+C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
@@ -114,7 +119,7 @@ def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
                    '_dirtyFDF.dat', zip(phiArr, dirtyFDF.real, dirtyFDF.imag))
         log_wr(LF, '> Dirty FDF saved to ASCII file.')
 
-        # Write flags and metadata to the catalogue file
+        # Write flags and metadata to the catalogue recarray
         rmsfRec[i]['uniqueName'] = specRec[i]['uniqueName']
         rmsfRec[i]['weightType'] = weightType
         rmsfRec[i]['lam0Sq_m2'] = lam0Sq

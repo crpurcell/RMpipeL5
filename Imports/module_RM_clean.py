@@ -5,23 +5,27 @@
 #                                                                             #
 # PURPOSE:  Perform Hogbom RM-clean on dirty FDFs in the PPC.                 #
 #                                                                             #
-# MODIFIED: 27-Nov-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
-# TODO:     * Catch errors in non-fatal way                                   #
-#           * If doOverwrite is not set, read and return the existing result  #
+# TODO:                                                                       #
+#  * Catch errors in non-fatal way                                            #
+#  * If doOverwrite is not set, read and return the existing result           #
 #                                                                             #
 #=============================================================================#
+
 import os
 import sys
 import math as m
 import numpy as np
 
-from util_RM import *
+from util_PPC import log_wr
 from util_PPC import log_fail
 from util_PPC import fail_not_exists
-from util_PPC import log_wr
-from util_PPC import poly5
 
+from util_RM import do_rmclean
+
+# Constants
+C = 2.99792458e8
 
 #-----------------------------------------------------------------------------#
 def mod_do_RMclean(specRec, dataInDir, outDataDir, cleanCutoff_sigma=5,
@@ -46,7 +50,6 @@ def mod_do_RMclean(specRec, dataInDir, outDataDir, cleanCutoff_sigma=5,
     # Loop through the catalogue entries
     log_wr(LF, '\nPerforming RM-clean on the catalogue entries ...')
     for i in range(len(specRec)):
-
         
         log_wr(LF, "\nProcessing entry %d: '%s'." %
                (i+1, specRec[i]['uniqueName']))
@@ -96,7 +99,7 @@ def mod_do_RMclean(specRec, dataInDir, outDataDir, cleanCutoff_sigma=5,
                    '_cleanFDFPImodel.dat', zip(phiArr, np.abs(ccModel)))
         log_wr(LF, '> Clean FDF and CC model saved to ASCII files.')
 
-        # Write flags and metadata to the catalogue file
+        # Write flags and metadata to the record array
         cleanRec[i]['uniqueName'] = specRec[i]['uniqueName']
         cleanRec[i]['nIterDone'] = nIter
         cleanRec[i]['cleanCutoff_sigma'] = cleanCutoff_sigma

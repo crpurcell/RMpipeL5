@@ -70,7 +70,7 @@ def plotSpecIerrs(sessionPath, uniqueName, io='fig'):
     specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
     specIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
     specdIdat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
-    specdIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
+    specdIArr = np.loadtxt(specdIdat, delimiter=' ', unpack=True)
     modelIdat = specDir +  '/' + uniqueName +  '_specImodel.dat'
     modelIArr = np.loadtxt(modelIdat, delimiter=' ', unpack=True)
 
@@ -141,12 +141,16 @@ def plotSpecPQUerrs(sessionPath, uniqueName, io='fig'):
     # Load the Stokes Q and U spectra
     specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
     specQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
+    
     specdQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
-    specdQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
+    specdQArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
+    
     specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
     specUArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
+    
     specdUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
-    specdUArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
+    specdUArr = np.loadtxt(specdUdat, delimiter=' ', unpack=True)
+    
     specPArr = np.sqrt(np.power(specQArr[1],2) + np.power(specUArr[1],2))
     specdPArr = np.sqrt(np.power(specdQArr[1],2) + np.power(specdUArr[1],2))
     
@@ -250,6 +254,167 @@ def plotSpecRMS(sessionPath, uniqueName, io='fig'):
     
 
 #-----------------------------------------------------------------------------#
+def plotSpecParms(sessionPath, uniqueName, io='fig'):
+    
+    specDir = sessionPath + '/OUT'
+    
+    # Setup the figure
+    fig = Figure()
+    fig.set_size_inches([8,4])
+
+    # Load the Stokes I spectrum and model
+    specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
+    specIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
+    
+    specdIdat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
+    specdIArr = np.loadtxt(specdIdat, delimiter=' ', unpack=True)
+    
+    modelIdat = specDir +  '/' + uniqueName +  '_specImodel.dat'
+    modelIArr = np.loadtxt(modelIdat, delimiter=' ', unpack=True)
+
+    # Load the Stokes Q and U spectra
+    specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
+    specQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
+    
+    specdQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
+    specdQArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
+    
+    specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
+    specUArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
+    
+    specdUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
+    specdUArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
+    
+    # Calculate fractional polarisation spectra
+    qArr = specQArr[1] / modelIArr[1]
+    uArr = specUArr[1] / modelIArr[1]
+    dqArr = qArr * np.sqrt( (specdQArr/specQArr)**2.0 +
+                            (specdIArr/specIArr)**2.0 )
+    duArr = uArr * np.sqrt( (specdUArr/specUArr)**2.0 +
+                            (specdIArr/specIArr)**2.0 )
+
+    lamSqArr_m2 = np.power(C/specIArr[0], 2.0)
+    plot_QUfit_spectra(fig=fig,
+                       lamSqArr_m2 = lamSqArr_m2,
+                       IArr_mJy = specIArr[1]*1e3,
+                       dIArr_mJy = specdIArr[1]*1e3,
+                       qArr = qArr,
+                       dqArr = dqArr,
+                       uArr = uArr,
+                       duArr = duArr,
+                       IModArr_mJy =modelIArr[1]*1e3 )
+
+    # Write to the pipe
+    if io=='string':
+        sio = StringIO.StringIO()
+        setattr(sio, "name", "foo.jpg")
+        fig.savefig(sio, format='jpg' )    
+        return sio
+    else:
+        return fig
+
+    
+#-----------------------------------------------------------------------------#
+def plot_QUfit_spectra(fig, lamSqArr_m2, IArr_mJy, dIArr_mJy, qArr, dqArr,
+                       uArr, duArr, lamSqHirArr_m2=None, IModArr_mJy=None,
+                       qModArr=None, uModArr=None, outName=None):
+    
+    if lamSqHirArr_m2 is None:
+        lamSqHirArr_m2 = lamSqArr_m2
+    freqArr_Hz =  C / lamSqArr_m2**0.5
+    freqHirArr_Hz =  C / lamSqHirArr_m2**0.5
+
+    # Plot I versus nu,
+    ax1 = fig.add_subplot(221)
+    ax1.errorbar(x=freqArr_Hz/1e9, y=IArr_mJy, yerr=dIArr_mJy, mfc='none',
+                 ms=4, fmt='D', ecolor='grey', elinewidth=1.0, capsize=2)
+    if IModArr_mJy is not None:
+        ax1.plot(freqHirArr_Hz/1e9, IModArr_mJy, color='k', lw=0.5,
+                 label='I Model')
+    ax1.text(0.95, 0.90, 'Stokes I Spectrum', transform=ax1.transAxes,
+             horizontalalignment='right')
+    ax1.yaxis.set_major_locator(MaxNLocator(4))
+    ax1.xaxis.set_major_locator(MaxNLocator(5))
+    ax1.set_xlabel('$\\nu$ (GHz)')
+    ax1.set_ylabel('Flux Density (mJy)')
+    format_ticks(ax1, 10, 1.2)
+    ax1.relim()
+    ax1.autoscale_view(False,True,True)
+
+    # Plot p, q, u versus lambda^2
+    ax1 = fig.add_subplot(223)
+    ax1.errorbar(x=lamSqArr_m2, y=qArr, yerr=dqArr, mec='b', mfc='none', ms=4,
+                 fmt='D', ecolor='b', elinewidth=1.0, capsize=2,
+                 label='Stokes q')
+    ax1.errorbar(x=lamSqArr_m2, y=uArr, yerr=duArr, mec='r', mfc='none', ms=4,
+                 fmt='D', ecolor='r', elinewidth=1.0, capsize=2,
+                 label='Stokes u')
+    pArr = np.sqrt(qArr**2.0 + uArr**2.0 )
+    dpArr = np.sqrt(dqArr**2.0 + duArr**2.0 )
+    ax1.errorbar(x=lamSqArr_m2, y=pArr, yerr=dpArr, mec='k', mfc='none', ms=4,
+                 fmt='D', ecolor='k', elinewidth=1.0, capsize=2, label='p')
+    if qModArr is not None:
+        ax1.plot(lamSqHirArr_m2, qModArr, color='b', lw=0.5, label='Model q')
+    if uModArr is not None:
+        ax1.plot(lamSqHirArr_m2, uModArr, color='r', lw=0.5, label='Model u')
+    if qModArr is not None and uModArr is not None:
+        PModArr = np.sqrt(qModArr**2.0 + uModArr**2.0 )
+        ax1.plot(lamSqHirArr_m2, PModArr, color='k', lw=0.5, label='Model p')
+    ax1.yaxis.set_major_locator(MaxNLocator(4))
+    ax1.xaxis.set_major_locator(MaxNLocator(4))
+    ax1.set_xlabel('$\\lambda^2$ (m$^2$)')
+    ax1.set_ylabel('Fractional Polarisation')
+    format_ticks(ax1, 10, 1.2)
+    ax1.relim()
+    ax1.autoscale_view(False,True,True)
+      
+    # Plot psi versus lambda^2
+    ax1 = fig.add_subplot(222)
+    ax1.yaxis.tick_right()
+    ax1.yaxis.set_label_position("right")
+    dQUArr = np.sqrt(dqArr**2.0 + duArr**2.0)
+    psiArr_deg = np.degrees( np.arctan2(uArr, qArr) / 2.0 )
+    dPsiArr_deg = np.degrees( np.sqrt( (qArr * duArr)**2.0 +
+                                       (uArr * dqArr)**2.0) /
+                              (2.0 * pArr**2.0) )
+    ax1.errorbar(x=lamSqArr_m2, y=psiArr_deg, yerr=dPsiArr_deg, mec='k',
+                 mfc='none', ms=4, fmt='D', ecolor='k', elinewidth=1.0,
+                 capsize=2, label='$\psi$')
+    if qModArr is not None and uModArr is not None:
+        psiHirArr_deg = np.degrees( np.arctan2(uModArr, qModArr) / 2.0 )
+        ax1.plot(lamSqHirArr_m2, psiHirArr_deg, color='k', lw=0.5,
+                 label='Model $\psi$')
+    ax1.set_ylim(-99.9, 99.9)
+    ax1.yaxis.set_major_locator(MaxNLocator(4))
+    ax1.xaxis.set_major_locator(MaxNLocator(4))
+    ax1.set_xlabel('$\\lambda^2$ (m$^2$)')
+    ax1.set_ylabel('$\psi$ (degrees)')
+    format_ticks(ax1, 10, 1.2)
+    ax1.relim()
+    ax1.autoscale_view(False,True,True)
+
+    # Plot U versus Q
+    ax1 = fig.add_subplot(224)
+    ax1.yaxis.tick_right()
+    ax1.yaxis.set_label_position("right")
+    ax1.errorbar(x=uArr, y=qArr, xerr=duArr, yerr=dqArr, mec='k', mfc='none',
+                 ms=4, fmt='D', ecolor='k', elinewidth=1.0, capsize=2)
+    if qModArr is not None and uModArr is not None:
+        ax1.plot(uModArr, qModArr, color='k', lw=0.5, label='Model q & u')
+    ax1.axhline(0, color='grey')
+    ax1.axvline(0, color='grey')
+    ax1.yaxis.set_major_locator(MaxNLocator(4))
+    ax1.xaxis.set_major_locator(MaxNLocator(4))
+    ax1.set_xlabel('Stokes u')
+    ax1.set_ylabel('Stokes q')
+    format_ticks(ax1, 10, 1.2)
+    ax1.relim()
+    ax1.autoscale_view(False,True,True)
+
+    return fig
+    
+    
+#-----------------------------------------------------------------------------#
 def plotDirtyFDF(sessionPath, uniqueName, io='fig'):
 
     specDir = sessionPath + '/OUT'
@@ -307,3 +472,10 @@ def plotDirtyFDF(sessionPath, uniqueName, io='fig'):
     else:
         return fig
     
+
+#-----------------------------------------------------------------------------#
+def format_ticks(ax, pad=10, w=1.0):
+
+    ax.tick_params(pad=pad)
+    for line in ax.get_xticklines() + ax.get_yticklines():
+        line.set_markeredgewidth(w)

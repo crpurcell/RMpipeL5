@@ -5,19 +5,16 @@
 #                                                                             #
 # PURPOSE:  Utility functions to operate on FITS data.                        #
 #                                                                             #
-# MODIFIED: 12-Sep-2014 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
 #  mkWCSDict         ... parse fits header using wcslib                       #
-#  world2pix         ... simple linear conversion world->pix                  #
-#  pix2world         ... simple linear conversion pix->world                  #
-#  chan2world        ... simple linear conversion chan->world                 #
-#  world2chan        ... simple linear conversion world->chan                 #
 #  strip_fits_dims   ... strip header and / or data dimensions                #
 #  get_beam_from_header ... fetch the beam parameters from a FITS header      #
 #  get_beam_area     ... calculate the effective beam area in px              #
 #  get_subfits       ... cut a sub portion from a FITS cube                   #
+#  create_simple_fits_hdu ... create a blank FITS HDU with full headers       #
 #                                                                             #
 #=============================================================================#
 
@@ -127,58 +124,6 @@ def mkWCSDict(header, wrapX180=False, forceCheckDims=5):
     
 
 #-----------------------------------------------------------------------------#
-def world2pix(w, x_deg, y_deg):
-    """
-    Simple linear conversion from deg to pixel (1-based pix numbering).
-    """
-    
-    x_deg = float(x_deg)
-    y_deg = float(y_deg)    
-    cosF = m.cos( m.radians(y_deg) )
-    x_pix = w['xrpix'] + (x_deg - w['xrval']) / (w['xdelt'] / cosF )
-    y_pix = w['yrpix'] + (y_deg - w['yrval']) / w['ydelt'] 
-    
-    return x_pix, y_pix
-
-
-#-----------------------------------------------------------------------------#
-def pix2world(w, x_pix, y_pix):
-    """
-    Simple linear conversion from pixel to deg (1-based pix numbering).
-    """
-    
-    x_pix = float(x_pix)
-    y_pix = float(y_pix)   
-    y_deg = w['yrval'] + ( (y_pix - w['yrpix']) * w['ydelt'] )
-    cosF  = m.cos( m.radians(y_deg) )
-    x_deg = w['xrval'] + ( (x_pix - w['xrpix']) * w['xdelt'] / cosF)
-
-    return x_deg, y_deg
-
-
-#-----------------------------------------------------------------------------#
-def chan2world(w, z_pix):
-    """
-    Simple linear conversion from channel to world coordinates (1-based).
-    """
-    
-    z_deg = w['zrval'] + ( (z_pix - w['zrpix']) * w['zdelt'] )
-
-    return z_deg
-
-
-#-----------------------------------------------------------------------------#
-def world2chan(w, z_deg):
-    """
-    Simple linear conversion from channel to world coordinates (1-based).
-    """
-    
-    z_pix = w['zrpix'] + ( (z_deg - w['zrval']) / w['zdelt'] )
-    
-    return z_pix
-
-
-#-----------------------------------------------------------------------------#
 def strip_fits_dims(data=None, header=None, minDim=2, forceCheckDims=0):
     """
     Strip array and / or header dimensions from a FITS data-array or header.
@@ -227,6 +172,13 @@ def strip_fits_dims(data=None, header=None, minDim=2, forceCheckDims=0):
                         if i > naxis:
                             naxis = i
         
+        # Force a check on max dimensions of the PC keyword array
+        if forceCheckDims>0:
+            for i in range(1, forceCheckDims+1):
+                for j in range(1, forceCheckDims+1):
+                    if naxis < max([i,j]):
+                        naxis = max([i,j])
+
         extraDims = naxis - minDim
         if extraDims < 0:
             print "Too few dimensions in data. "
@@ -240,6 +192,18 @@ def strip_fits_dims(data=None, header=None, minDim=2, forceCheckDims=0):
                         del header[key+str(i)]
                     except Exception:
                         pass
+                    
+        # Delete the PC array keyword entries
+        for i in range(1,naxis+1):
+            for j in range(1, naxis+1):
+                key = "PC" + "%03d" % i + "%03d" % j
+                if i>minDim or j>minDim:
+                    if key in header:
+                        try:
+                            del header[key]
+                        except Exception:
+                            pass
+                        
         header['NAXIS'] = minDim
         header['WCSAXES'] = minDim
 
@@ -412,3 +376,59 @@ def get_subfits(inFileName, x_deg, y_deg, radius_deg, zMin_w=None, zMax_w=None,
         pass
     
     return dataSub, headSub
+
+
+#-----------------------------------------------------------------------------#
+def create_simple_fits_hdu(shape=(1, 1, 10, 10), freq_Hz=1.4e9, dFreq_Hz=1e6,
+                           xCent_deg=90.0, yCent_deg=0.0,
+                           beamFWHM_deg=1.5/3600.0, pixScale_deg=0.3/3600.0,
+                           stokes='I', system="EQU"):
+    """
+    Create a blank HDU centred on a given coordinate and shape
+    """
+    
+    stokesCRVAL ={'I': 1.0,'Q': 2.0,'U': 3.0,'V': 4.0}
+    if system=="GAL":
+        xCoordStr = "GLON-CAR"
+        yCoordStr = "GLAT-CAR"
+    else:
+        xCoordStr = "RA-SIN"
+        yCoordStr = "DEC-SIN"
+
+    # Create the data array and insert into a new HDU
+    dataArr = np.zeros(shape, dtype='f4')
+    hdu = pf.PrimaryHDU(data=dataArr)
+    head = hdu.header
+
+    # Populate the header cards assuming small field of view
+    head["BSCALE"] = 1.0
+    head["CTYPE1"] = xCoordStr
+    head["CRVAL1"] = xCent_deg
+    head["CRPIX1"] = shape[-1]/2.0 + 0.5
+    head["CDELT1"] = pixScale_deg
+
+    head["CTYPE2"] = yCoordStr
+    head["CRVAL2"] = yCent_deg
+    head["CRPIX2"] = shape[-2]/2.0 + 0.5
+    head["CDELT2"] = pixScale_deg
+
+    head["CTYPE3"] = "FREQ"
+    head["CRVAL3"] = freq_Hz
+    head["CRPIX3"] = 1.0
+    head["CDELT3"] = dFreq_Hz
+
+    head["CTYPE4"] = "STOKES  "
+    head["CRVAL4"] = stokesCRVAL[stokes]
+    head["CRPIX4"] = 1.0
+    head["CDELT4"] = 1.0
+
+    head["BUNIT"] = "JY/BEAM "
+    head["CELLSCAL"] = "CONSTANT"
+    head["BMAJ"] = beamFWHM_deg
+    head["BMIN"] = beamFWHM_deg
+    head["BPA"] = 0.0
+    head["BTYPE"] = "intensity"
+    head["EPOCH"] = 2000.0
+
+    return hdu
+

@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 30-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -17,7 +17,7 @@
 #  fail_not_exists      ... check for dir/file existence, exit if missing     #
 #  set_statusfile       ... set text in an ASCII status file                  #
 #  read_statusfile      ... read text in an ASCII status file                 #
-#  read_paths           ... read the paths from an external file              #
+#  # read_paths         ... read the paths from an external file              #
 #  load_vector_fail     ... load a single-column vector from a text file      #
 #  cat_to_recarray      ... convert ASCII catalogue file to a record array    #
 #  extract_spec_noise   ... extract source and noise spectra from FITS file(s)#
@@ -26,13 +26,12 @@
 #  poly5                ... function to evaluate a 5th order polynomial       #
 #  log_fail             ... record a fatal error in the log file and exit     #
 #  log_wr               ... record a message in the log file                  #
-#  inparm_verify        ... verify presence of required pipeline inputs       #
-#  spawnDaemon          ... call an executable file as a detached procress    #
 #  nanmedian            ... np.median ignoring NaNs                           #
 #  MAD                  ... calculate the madfm                               #
 #  calc_stats           ... calculate the statistics of an array              #
-#  calc_clipped_stats   ... calculate the stats after sigma-clipping          #
 #  sort_nicely          ... sort a list in the order a human would            #
+#  twodgaussian         ... return an array containing a 2D Gaussian          #
+#  create_IQU_spectra_RMthin ... return IQU spectra for a thin source         #
 #                                                                             #
 #=============================================================================#
 
@@ -47,6 +46,7 @@ import numpy.ma as ma
 import ConfigParser
 
 C = 2.997924538e8 # Speed of light [m/s]
+
 
 #-----------------------------------------------------------------------------#
 class PipelineInputs:
@@ -155,14 +155,16 @@ class PipelineInputs:
         
         # Read the dataType.txt file
         dataPath = self.config.get("Dataset", "dataPath")
-        #dataTypeFile = dataPath + '/dataType.txt'
-        dataTypeFile = self.sessionDir + '/dataType.txt'
+        dataTypeFile = dataPath + '/dataType.txt'
+        if not os.path.exists(dataTypeFile):
+            dataTypeFile = self.sessionDir + '/dataType.txt'
         dataType = read_statusfile(dataTypeFile)
 
         # Frequency and wavelength sampling
         # These are set by the dataset and cannot be altered by the user
-        #inFreqFile = dataPath + '/freqs_Hz.txt'
-        inFreqFile =  self.sessionDir + '/freqs_Hz.txt'
+        inFreqFile = dataPath + '/freqs_Hz.txt'
+        if not os.path.exists(inFreqFile):
+            inFreqFile =  self.sessionDir + '/freqs_Hz.txt'
         freqArr_Hz = load_vector_fail(inFreqFile, "float32", False)
         dFreq_Hz = np.nanmin(np.abs(np.diff(freqArr_Hz)))
         lambdaArr_m = C / freqArr_Hz
@@ -170,6 +172,7 @@ class PipelineInputs:
         lambdaSqRange_m2 = ( np.nanmax(lambdaSqArr_m2) -
                              np.nanmin(lambdaSqArr_m2) )        
         dLambdaSqMin_m2 = np.nanmin(np.abs(np.diff(lambdaSqArr_m2)))
+        dLambdaSqMax_m2 = np.nanmax(np.abs(np.diff(lambdaSqArr_m2)))
 
         # Default Faraday depth limits
         # The Faraday sampling can be forced by existing config options
@@ -177,7 +180,7 @@ class PipelineInputs:
         if resetPhiSamp:
             oversampling = float(self.config.get("RMsynthesis", "oversampling"))
             dPhi_radm2 = fwhmRMSF_radm2 / oversampling
-            phiMax_radm2 = m.sqrt(3.0) / dLambdaSqMin_m2
+            phiMax_radm2 = m.sqrt(3.0) / dLambdaSqMax_m2
         else:
             dPhi_radm2 = float(self.config.get("RMsynthesis", "dPhi_radm2"))
             phiMax_radm2 = float(self.config.get("RMsynthesis", "phiMax_radm2"))
@@ -197,6 +200,7 @@ class PipelineInputs:
         self.derivedParmDict["lambdaSqArr_m2"] = lambdaSqArr_m2
         self.derivedParmDict["lambdaSqRange_m2"] = lambdaSqRange_m2
         self.derivedParmDict["dLambdaSqMin_m2"] = dLambdaSqMin_m2
+        self.derivedParmDict["dLambdaSqMax_m2"] = dLambdaSqMax_m2
         self.derivedParmDict["fwhmRMSF_radm2"] = fwhmRMSF_radm2        
         self.config.set("RMsynthesis", "dPhi_radm2", str(dPhi_radm2))
         self.config.set("RMsynthesis", "phiMax_radm2", str(phiMax_radm2))
@@ -353,6 +357,7 @@ def set_statusfile(statusFile, status=0):
     SF.write("%d\n" % status)
     SF.close()
 
+
 #-----------------------------------------------------------------------------#
 def read_statusfile(statusFile):
     """
@@ -364,25 +369,6 @@ def read_statusfile(statusFile):
     SF.close()
     
     return statStr
-
-#-----------------------------------------------------------------------------#
-def read_paths(pathFile):
-    """
-    Read the paths in a text file and return a dictionary of key=val pairs.
-    """
-
-    # Default required paths to current directory
-    varDict = {'pipeDir':'.', 'cgiURL':'.'}
-    
-    if os.path.exists(pathFile):
-        F = open(pathFile)
-        for line in F:
-            line = line.rstrip("\n\r")
-            (keyword, value) = line.split('=', 1)
-            varDict[keyword] = value
-        F.close()
-
-    return varDict
 
 
 #-----------------------------------------------------------------------------#
@@ -409,7 +395,7 @@ def load_vector_fail(inFile, dtype='float32', tolist=False, LF=None):
 
 
 #-----------------------------------------------------------------------------#
-def cat_to_recarray(inCatFile, dtype, delim=" ", LF=None):
+def cat_to_recarray(inCatFile, dtype, delim=" ", doWarn=True, LF=None):
     """
     Read and parse the catalogue file. The 'dtype' argument should be a list
     of tuples, one tuple per column. Each tuple should have two entries: the
@@ -417,7 +403,7 @@ def cat_to_recarray(inCatFile, dtype, delim=" ", LF=None):
     10 character string). For example:    
     dtype=[('inName', 'a20'), ('rms', 'f8'), ('x_deg', 'f8'), ('y_deg', '<f8')]
     Lines which have the wrong number of entries or where entries fail to
-    convert are skipped.
+    convert are skipped with a warning
     """
     if LF is None:
         LF = sys.stdout
@@ -461,9 +447,10 @@ def cat_to_recarray(inCatFile, dtype, delim=" ", LF=None):
         
         nCols = len(line)
         if len(line)!=len(colNameLst):
-            log_wr(LF,'Warn: Missmatch in number of catalogue entries.')
-            log_wr(LF,'Row %d: #entries=%d, #columns=%d.' % (row, nCols,
-                                                             len(colNameLst)))
+            if doWarn:
+                log_wr(LF,'Warn: Missmatch in number of catalogue entries.')
+                log_wr(LF,'Row %d: #entries=%d, #columns=%d.' % (row, nCols,
+                                                           len(colNameLst)))
             continue
         else:
             catLst.append(line)
@@ -501,7 +488,7 @@ def calc_sumbox_norm(beamFWHM_pix, side_pix):
 #-----------------------------------------------------------------------------#
 def calc_mom2_FDF(ccFDF, phiArr):
     """
-    Calculate the 2nd moment of the clean component distribution.
+    Calculate the 2nd moment of the clean component spectrum.
     """
     
     K = np.sum( np.abs(ccFDF) )
@@ -550,100 +537,6 @@ def log_wr(LF, message):
 
 
 #-----------------------------------------------------------------------------#
-def inparm_verify(parmDict):
-    """
-    Verify that the input parameters to the pipeline are all present
-    """
-    
-    requiredKeyLst = ['dataPath',
-                      'inFreqFile',
-                      'gain',
-                      'sumBoxPix',
-                      'dLambdaSqMin_m2',
-                      'phiCentre',
-                      'lambdaSqRange',
-                      'dPhi',
-                      'nChanRM',
-                      'weightType',
-                      'thresholdSignalPI',
-                      'thresholdPolBias',
-                      'thresholdDoClean',
-                      'phiMom2Thresh',
-                      'cleanAlgorithm',
-                      'maxCleanIter',
-                      'cleanCutoff_sigma']
-
-    keys = parmDict.keys()
-    missingLst = [x for x in requiredKeyLst if x not in keys]
-
-    if len(missingLst) > 0:
-        return missingLst
-    else:
-        return []
-
-    
-#-----------------------------------------------------------------------------#
-def spawnDaemon(path_to_executable, *args):
-    """Spawn a completely detached subprocess (i.e., a daemon).
-    E.g.:
-    spawnDaemon('../bin/producenotify.py', 'producenotify.py', 'xx')
-    """
-
-    # The standard I/O file descriptors are redirected to /dev/null.
-    if (hasattr(os, "devnull")):
-       REDIRECT_TO = os.devnull
-    else:
-       REDIRECT_TO = "/dev/null"
-    
-    # fork the first time (to make a non-session-leader child process)
-    try:
-        pid = os.fork()
-    except OSError, e:
-        raise RuntimeError("1st fork failed: %s [%d]" % (e.strerror, e.errno))
-    if pid != 0:
-        # parent (calling) process is all done
-        return
-
-    # detach from controlling terminal (to make child a session-leader)
-    os.setsid()
-    try:
-        pid = os.fork()
-    except OSError, e:
-        raise RuntimeError("2nd fork failed: %s [%d]" % (e.strerror, e.errno))
-        raise Exception, "%s [%d]" % (e.strerror, e.errno)
-    if pid != 0:
-        # child process is all done
-        os._exit(0)
-        
-    # grandchild process now non-session-leader, detached from parent
-    # grandchild process must now close all open files
-    try:
-        maxfd = os.sysconf("SC_OPEN_MAX")
-    except (AttributeError, ValueError):
-        maxfd = 1024
-
-    for fd in range(0,maxfd):
-        try:
-           os.close(fd)
-        except OSError: # ERROR, fd wasn't open to begin with (ignored)
-           pass
-
-    # redirect stdin, stdout and stderr to /dev/null
-    os.open(REDIRECT_TO, os.O_RDWR) # standard input (0)
-    os.dup2(0, 1)
-    os.dup2(0, 2)
-
-    # and finally let's execute the executable for the daemon!
-    try:
-       
-       os.execv(path_to_executable, (path_to_executable,) +  tuple(args))
-    except Exception, e:
-       # oops, we're cut off from the world, let's just give up
-       os._exit(255)
-
-
-
-#-----------------------------------------------------------------------------#
 def nanmedian(arr, **kwargs):
     """
     Returns median ignoring NANs.
@@ -658,7 +551,6 @@ def MAD(a, c=0.6745, axis=None):
     Median Absolute Deviation along given axis of an array:
     median(abs(a - median(a))) / c
     c = 0.6745 is the constant to convert from MAD to std
-
     """
     
     a = ma.masked_where(a!=a, a)
@@ -667,7 +559,6 @@ def MAD(a, c=0.6745, axis=None):
         m = ma.median(ma.fabs(a - d) / c)
     else:
         d = ma.median(a, axis=axis)
-        # I don't want the array to change so I have to copy it?
         if axis > 0:
             aswp = ma.swapaxes(a,0,axis)
         else:
@@ -680,7 +571,7 @@ def MAD(a, c=0.6745, axis=None):
 #-----------------------------------------------------------------------------#
 def calc_stats(a, maskzero=False):
     """
-    Calculate the statistics of an array (masked version).
+    Calculate the statistics of an array.
     """
     
     statsDict = {}
@@ -718,40 +609,6 @@ def calc_stats(a, maskzero=False):
 
 
 #-----------------------------------------------------------------------------#
-def calc_clipped_stats(data, clip=3.0, nIter=10, maskzero=False):
-    """
-    Calculate the statistics of an array given a sigma clip.
-    """
-    
-    if maskzero:
-        data = np.where( np.equal(data, 0.0), np.nan, data)
-        
-    ms = calc_stats_ma(data)
-
-    if clip>0 and nIter>0:
-        convergeFlg = 0
-        itCnt = 0
-        while convergeFlg==0 and itCnt<nIter:
-            meanOld, stdOld, madOld = ms['mean'], ms['stdev'], ms['madfm']
-            minVal = ms['mean'] - (clip * ms['madfm'])
-            maxVal = ms['mean'] + (clip * ms['madfm'])
-            
-            # Blank values outside the 3-sigma range
-            dataMsk = np.where(np.greater(data, maxVal), np.nan, data)
-            dataMsk = np.where(np.less(data, minVal), np.nan, dataMsk)
-            
-            # Measure the statistics
-            ms = calc_stats(dataMsk)
-            dataMsk = []
-    
-            if ms['mean'] == meanOld and ms['madfm'] == madOld:
-                convergFlg = 1
-            itCnt += 1
-
-    return ms
-
-
-#-----------------------------------------------------------------------------#
 def sort_nicely(l):
     """
     Sort a list in the order a human would.
@@ -760,4 +617,57 @@ def sort_nicely(l):
     convert = lambda text: int(text) if text.isdigit() else text 
     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
     l.sort( key=alphanum_key ) 
+
+
+#-----------------------------------------------------------------------------#
+def twodgaussian(params, shape):
+    """
+    Build a 2D Gaussian ellipse as parameterised by 'params' for a region with
+    'shape'
+        params - [amp, xo, yo, cx, cy, pa] where:
+                amp - amplitude
+                xo  - centre of Gaussian in X
+                yo  - centre of Gaussian in Y
+                cx  - width of Gaussian in X (sigma or c, not FWHM)
+                cy  - width of Gaussian in Y (sigma or c, not FWHM)
+                pa  - position angle of Gaussian, aka theta (radians)
+        shape - (y, x) dimensions of region
+    Returns a 2D numpy array with shape="shape" 
+    """
+    
+    assert(len(shape) == 2)
+    amp, xo, yo, cx, cy, pa = params
+    y, x = np.indices(shape)
+    st = m.sin(pa)**2
+    ct = m.cos(pa)**2
+    s2t = m.sin(2*pa)
+    a = (ct/cx**2 + st/cy**2)/2
+    b = s2t/4 *(1/cy**2-1/cx**2)
+    c = (st/cx**2 + ct/cy**2)/2
+    v = amp*np.exp(-1*(a*(x-xo)**2 + 2*b*(x-xo)*(y-yo) + c*(y-yo)**2))
+    
+    return v
+
+
+#-----------------------------------------------------------------------------#
+def create_IQU_spectra_RMthin(freqArr_Hz, fluxI_mJy, SI, fracPol, psi0_deg, 
+                              RM_radm2):
+    """Return Stokes I, Q & U spectra for a Faraday thin source"""
+    
+    lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
+    startFreq_Hz = freqArr_Hz[0]
+    endFreq_Hz = freqArr_Hz[-1]
+    
+    # Calculate Stokes I and P spectra
+    freqMid_Hz = (endFreq_Hz - startFreq_Hz) / 2.0
+    IArr_mJy = fluxI_mJy * np.power(freqArr_Hz/freqMid_Hz, SI)
+    PArr_mJy = IArr_mJy * fracPol
+    
+    # Calculate the Stokes Q and U Spectra
+    QU_mJy = PArr_mJy * np.exp( 2j * (np.radians(psi0_deg) +
+                                      RM_radm2 * lamSqArr_m2 ) )
+    QArr_mJy = QU_mJy.real
+    UArr_mJy = QU_mJy.imag
+    
+    return IArr_mJy, QArr_mJy, UArr_mJy
 

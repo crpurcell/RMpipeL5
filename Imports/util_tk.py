@@ -5,13 +5,15 @@
 #                                                                             #
 # PURPOSE:  Functions and classes for TK graphical elements.                  #
 #                                                                             #
-# MODIFIED: 21-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
-#  ScrolledTreeTab          ... scrolled Treeview widget to mimic a table     #
+#  ScrolledTreeTab   ... scrolled Treeview widget to mimic a table            #
+#  TableFrame        ... frame containing a table                             #
 #                                                                             #
 #=============================================================================#
+
 import Tkinter as tk
 import ttk
 import tkFont
@@ -114,7 +116,6 @@ class ScrolledTreeTab(tk.Frame):
             return newData
         except Exception:            
             return data
-
 
 
 #-----------------------------------------------------------------------------#

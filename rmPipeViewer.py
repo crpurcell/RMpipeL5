@@ -11,7 +11,7 @@
 #=============================================================================#
 
 # Default session
-defaultSessionDir = "SESSION/testSession"
+defaultSessionDir = "testSession"
 
 # Window geometry
 geometryBrowseWin = "1024x700"
@@ -577,19 +577,20 @@ class SpectraPlotFrame(tk.Frame):
         self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="NW")
 
         # Create the figure of the Stokes I spectrum and embed in a canvas
-        self.fig1 = plotSpecIerrs(self.resultsMan.sessionPath, self.uniqueName)
+        #self.fig1 = plotSpecIerrs(self.resultsMan.sessionPath, self.uniqueName)
+        self.fig1 = plotSpecParms(self.resultsMan.sessionPath, self.uniqueName)
         figCanvas = FigureCanvasTkAgg(self.fig1, master=self.frame)
         figCanvas.show()
         self.myCan = figCanvas.get_tk_widget()
         self.myCan.grid(row=1, column=0, padx=5, pady=5, sticky="NSEW")
 
         # Create the figure of the Stokes QU&V spectra and embed in a canvas
-        self.fig2 = plotSpecPQUerrs(self.resultsMan.sessionPath, 
-                                    self.uniqueName)
-        figCanvas = FigureCanvasTkAgg(self.fig2, master=self.frame)
-        figCanvas.show()
-        self.myCan = figCanvas.get_tk_widget()
-        self.myCan.grid(row=2, column=0, padx=5, pady=5, sticky="NSEW")
+        #self.fig2 = plotSpecPQUerrs(self.resultsMan.sessionPath, 
+        #                            self.uniqueName)
+        #figCanvas = FigureCanvasTkAgg(self.fig2, master=self.frame)
+        #figCanvas.show()
+        #self.myCan = figCanvas.get_tk_widget()
+        #self.myCan.grid(row=2, column=0, padx=5, pady=5, sticky="NSEW")
 
         # Create the figure of the RMS noise and embed in a canvas
         #self.fig3 = plotSpecRMS(self.resultsMan.sessionPath, self.uniqueName)
@@ -601,7 +602,7 @@ class SpectraPlotFrame(tk.Frame):
         # Configure the layout behaviour
         self.frame.columnconfigure(0, weight=1)
         self.frame.rowconfigure(1, weight=1)
-        self.frame.rowconfigure(2, weight=1)
+        #self.frame.rowconfigure(2, weight=1)
         #self.frame.rowconfigure(3, weight=1)
         
 #-----------------------------------------------------------------------------#
