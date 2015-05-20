@@ -10,7 +10,7 @@
 #           simple sanity checks and write vectors of frequency, channel and  #
 #           file to disk.                                                     #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 20-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -19,7 +19,7 @@ patIdefault = '*I.fits'
 patQdefault = '*Q.fits'
 patUdefault = '*U.fits'
 
-#-----------------------------------------------------------------------------#
+# END USER EDITS -------------------------------------------------------------#
 
 import os
 import sys
@@ -43,15 +43,20 @@ def main():
     Scan a directory for FITS format files containing Stokes I, Q and U data.
     Each FITS file should contain a single image (frequency plane) from a cube
     of data.  The script sorts the list of files by frequency (read from the
-    CRVAL3 header key) and writes vectors of frequency, channel and filename to
-    ASCII text files in the data directory. Files for each Stokes parameter
-    should have a unique naming format, matched by the wildcard patterns.
-    Default patterns are set at the top of the script and may be overridden
-    using command line arguments.
+    CRVAL3 header key) and writes ordered vectors of frequency, channel and
+    filename to ASCII text files in the data directory. Files for each Stokes
+    parameter should have a unique naming format, matched by the wildcard
+    patterns. Default patterns are set at the top of the script and may be
+    overridden using command line arguments.
+
+    Example:
+    
+    ./1_verify_image_data.py -I *I.fits -Q *Q.fits -U *U.fits testData/
     """
 
     # Parse the command line options
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,
+                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('dataPath', metavar='PATH/TO/DATA', default='.',
                         nargs='?', help='Path to data directory [.]')
     parser.add_argument('-I', dest='patI', default=patIdefault,

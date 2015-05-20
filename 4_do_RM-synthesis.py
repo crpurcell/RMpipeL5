@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
 #           pipeline session.                                                 #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 20-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -55,11 +55,24 @@ def main():
     descStr = """
     Loop through the catalogue in the database and perform RM-synthesis on the
     Stokes I, Q and U spectra that have previously been extracted. Measure the
-    properties of the resultant Faraday dispersion function.
+    properties of the resultant Faraday dispersion function and save to a new
+    table in the database.
+
+    Each complex Faraday dispersion function is saved in ASCII format to
+    a directory called 'PATH/TO/SESSION/OUT'. The ASCII files are named for
+    the position of the source on the sky.
+
+    Note: All measurements on the dirty Faraday dispersion function are saved
+    to the SQLite database in the file 'PATH/TO/SESSION/session.sqlite'.
+
+    Example:
+
+    ./4_do_RM-synthesis.py testSession/
     """
 
     # Parse the command line options
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,
+                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
                         help="Path to the new session directory [no default]")
     parser.add_argument("-o", dest="doOverwrite", action="store_true",

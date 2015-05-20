@@ -3,10 +3,20 @@
 #                                                                             #
 # NAME:     rmPipeViewer.py                                                   #
 #                                                                             #
-# PURPOSE:  A graphical interface designed to view the results of the RM-     #
-#           pipeline prototype.                                               #
+# PURPOSE:  A graphical interface designed to view the results of the Level 5 #
+#           RM-pipeline prototype.                                            #
 #                                                                             #
-# MODIFIED: 30-Apr-2015 by cpurcell                                           #
+# MODIFIED: 19-May-2015 by cpurcell                                           #
+#                                                                             #
+# CONTENTS:                                                                   #
+#                                                                             #
+# App               ... class to create the main window and sub-windows       #
+# SessChooseFrame   ... frame to browse to and load a session / results       #
+# TabPanelFrame     ... frame holding the tabbed notebook widget              #
+# PipeInputsFrame   ... frame to display the pipeline inputs                  #
+# ResultsManager    ... class to hold the database tables in memory           #
+# SpectraPlotFrame  ... frame defining the spectra plots                      #
+# RMsynthPlotFrame  ... frame defining the RM-synthesis plots                 #
 #                                                                             #
 #=============================================================================#
 
@@ -35,6 +45,7 @@ from Imports.util_plotTk import *
 
 # Turn off print statements buffering
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
+
 
 #-----------------------------------------------------------------------------#
 class App:
@@ -575,7 +586,7 @@ class SpectraPlotFrame(tk.Frame):
                                  text="Stokes I, Q & U Spectra",
                                  font=("Helvatica", 10))
         self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="NW")
-
+        
         # Create the figure of the Stokes I spectrum and embed in a canvas
         #self.fig1 = plotSpecIerrs(self.resultsMan.sessionPath, self.uniqueName)
         self.fig1 = plotSpecParms(self.resultsMan.sessionPath, self.uniqueName)
@@ -583,7 +594,7 @@ class SpectraPlotFrame(tk.Frame):
         figCanvas.show()
         self.myCan = figCanvas.get_tk_widget()
         self.myCan.grid(row=1, column=0, padx=5, pady=5, sticky="NSEW")
-
+        
         # Create the figure of the Stokes QU&V spectra and embed in a canvas
         #self.fig2 = plotSpecPQUerrs(self.resultsMan.sessionPath, 
         #                            self.uniqueName)
@@ -591,7 +602,7 @@ class SpectraPlotFrame(tk.Frame):
         #figCanvas.show()
         #self.myCan = figCanvas.get_tk_widget()
         #self.myCan.grid(row=2, column=0, padx=5, pady=5, sticky="NSEW")
-
+        
         # Create the figure of the RMS noise and embed in a canvas
         #self.fig3 = plotSpecRMS(self.resultsMan.sessionPath, self.uniqueName)
         #figCanvas = FigureCanvasTkAgg(self.fig3, master=self.frame)

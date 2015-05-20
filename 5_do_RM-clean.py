@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-clean on the Faraday dispersion Functions in a         #
 #           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 20-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -55,12 +55,26 @@ def main():
     
     # Help string to be shown using the -h option
     descStr = """
-    Loop through the catalogue and perform RM-synthesis on the Stokes I, Q
-    and U spectra that have previously been extracted.
+    Loop through the catalogue in the database and perform RM-CLEAN on the
+    Faraday dispersion functions that have previously been calculated. Measure
+    the properties of the clean Faraday dispersion function and save to a new
+    table in the database.
+
+    Each clean Faraday dispersion function and clean-component spectrum is
+    saved in ASCII format to a directory called 'PATH/TO/SESSION/OUT'. The
+    ASCII files are named for the position of the source on the sky.
+
+    Note: All measurements on the clean Faraday dispersion function are saved
+    to the SQLite database in the file 'PATH/TO/SESSION/session.sqlite'.
+
+    Example:
+
+    ./5_do_RM-clean.py testSession/
     """
 
     # Parse the command line options
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,
+                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
                         help="Path to the new session directory [no default]")
     parser.add_argument("-o", dest="doOverwrite", action="store_true",

@@ -5,12 +5,14 @@
 #                                                                             #
 # PURPOSE:  Plotting functions for the POSSUM pipeline Tk interface.          #
 #                                                                             #
-# MODIFIED: 20-Apr-2015 by C. Purcell                                         #
+# MODIFIED: 19-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
 # tweakAxFormat                                                               #
-# plotSpecI                                                                   #
+# plotSpecParms                                                               #
+# plot_QUfit_spectra                                                          #
+# plotDirtyFDF                                                                #
 #                                                                             #
 #=============================================================================#
 
@@ -22,8 +24,6 @@ import astropy.io.fits as pf
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
 from matplotlib.figure import Figure
-
-from util_plotFITS import *
 
 # Alter the default linewidths etc.
 mpl.rcParams['lines.linewidth'] = 1.0
@@ -40,12 +40,12 @@ C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
-def tweakAxFormat(ax, pad=10, loc='upper right'):
+def tweakAxFormat(ax, pad=10, loc='upper right', linewidth=1):
     
     # Axis/tic formatting
     ax.tick_params(pad=pad)
     for line in ax.get_xticklines() + ax.get_yticklines():
-        line.set_markeredgewidth(1)
+        line.set_markeredgewidth(linewidth)
         
     # Legend formatting
     leg = ax.legend(numpoints=1, loc=loc, shadow=False,
@@ -58,202 +58,6 @@ def tweakAxFormat(ax, pad=10, loc='upper right'):
 
 
 #-----------------------------------------------------------------------------#
-def plotSpecIerrs(sessionPath, uniqueName, io='fig'):
-    
-    specDir = sessionPath + '/OUT'
-    
-    # Setup the figure
-    fig = Figure()
-    fig.set_size_inches([8,4])
-
-    # Load the Stokes I spectrum and model
-    specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
-    specIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
-    specdIdat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
-    specdIArr = np.loadtxt(specdIdat, delimiter=' ', unpack=True)
-    modelIdat = specDir +  '/' + uniqueName +  '_specImodel.dat'
-    modelIArr = np.loadtxt(modelIdat, delimiter=' ', unpack=True)
-
-    # Plot the spectrum and model, in GHz and mJy
-    ax = fig.add_axes([0.12, 0.14, 0.85, 0.80])
-    plot_I_errs_ax(ax,
-                   freqArr_Hz=specIArr[0],
-                   IArr_mJy=specIArr[1]*1e3,
-                   dIArr_mJy=specdIArr[1],
-                   freqHirArr_Hz=modelIArr[0],
-                   IModArr_mJy=modelIArr[1]*1e3)
-    
-    # Write to the pipe
-    if io=='string':
-        sio = StringIO.StringIO()
-        setattr(sio, "name", "foo.jpg")
-        fig.savefig(sio, format='jpg' )    
-        return sio
-    else:
-        return fig
-    
-
-#-----------------------------------------------------------------------------#
-def plot_I_errs_ax(ax, freqArr_Hz, IArr_mJy, dIArr_mJy, freqHirArr_Hz=None,
-                   IModArr_mJy=None):
-    
-    """
-    Plot the I spectrum and an optional model.
-    """
-
-    # Default to non-high-resolution inputs
-    if freqHirArr_Hz is None:
-        freqHirArr_Hz =  C / lamSqHirArr_m2**0.5
-
-    # Plot I versus frequency
-    ax.errorbar(x=freqArr_Hz/1e9, y=IArr_mJy, yerr=dIArr_mJy, mfc='none',
-                ms=4, fmt='D', ecolor='grey', elinewidth=1.0, capsize=2,
-                label='Data')
-    if IModArr_mJy is not None:
-        ax.plot(freqHirArr_Hz/1e9, IModArr_mJy, color='k', lw=0.5,
-                label='I Model')
-    ax.text(0.05, 0.89, 'Stokes I Spectrum', transform=ax.transAxes)
-    ax.yaxis.set_major_locator(MaxNLocator(4))
-    ax.xaxis.set_major_locator(MaxNLocator(5))
-
-    xRange = (np.nanmax(freqArr_Hz)-np.nanmin(freqArr_Hz))/1e9 
-    ax.set_xlim( np.min(freqArr_Hz)/1e9 - xRange*0.05,
-                 np.max(freqArr_Hz)/1e9 + xRange*0.05)
-    
-    ax.set_xlabel('$\\nu$ (GHz)')
-    ax.set_ylabel('Flux Density (mJy)')
-
-    # Format tweaks
-    ax = tweakAxFormat(ax)
-    ax.relim()
-    ax.autoscale_view()
-
-
-#-----------------------------------------------------------------------------#
-def plotSpecPQUerrs(sessionPath, uniqueName, io='fig'):
-    
-    specDir = sessionPath + '/OUT'
-    
-    # Setup the figure
-    fig = Figure()
-    fig.set_size_inches([8,4])
-    
-    # Load the Stokes Q and U spectra
-    specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
-    specQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
-    
-    specdQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
-    specdQArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
-    
-    specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
-    specUArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
-    
-    specdUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
-    specdUArr = np.loadtxt(specdUdat, delimiter=' ', unpack=True)
-    
-    specPArr = np.sqrt(np.power(specQArr[1],2) + np.power(specUArr[1],2))
-    specdPArr = np.sqrt(np.power(specdQArr[1],2) + np.power(specdUArr[1],2))
-    
-    # Plot the spectrum and model, in GHz and mJy
-    ax = fig.add_axes([0.12, 0.14, 0.85, 0.80])
-    plot_PQU_errs_ax(ax,
-                     freqArr_Hz=specQArr[0],
-                     PArr_mJy=specPArr*1e3,
-                     dPArr_mJy=specdPArr*1e3,
-                     QArr_mJy=specQArr[1]*1e3,
-                     dQArr_mJy=specdQArr[1]*1e3,
-                     UArr_mJy=specUArr[1]*1e3,
-                     dUArr_mJy=specdUArr[1]*1e3)
-                     
-    # Write to the pipe
-    if io=='string':
-        sio = StringIO.StringIO()
-        setattr(sio, "name", "foo.jpg")
-        fig.savefig(sio, format='jpg' )    
-        return sio
-    else:
-        return fig
-
-
-#-----------------------------------------------------------------------------#
-def plot_PQU_errs_ax(ax, freqArr_Hz, PArr_mJy, dPArr_mJy, QArr_mJy, dQArr_mJy,
-                   UArr_mJy, dUArr_mJy):
-    
-    """
-    Plot the P, Q & U spectrum and an optional model.
-    """
-    
-    # Plot P, Q, U versus frequency
-    ax.errorbar(x=freqArr_Hz/1e9, y=QArr_mJy, yerr=dQArr_mJy, mec='b',
-                mfc='none', ms=4, fmt='D', color='b', elinewidth=0.3,
-                capsize=2, label='Stokes Q', linestyle='-')
-    ax.errorbar(x=freqArr_Hz/1e9, y=UArr_mJy, yerr=UArr_mJy, mec='r',
-                mfc='none', ms=4, fmt='D', color='r', elinewidth=0.3,
-                capsize=2, label='Stokes U', linestyle='-')
-    ax.errorbar(x=freqArr_Hz/1e9, y=PArr_mJy, yerr=dPArr_mJy, mec='k',
-                mfc='none', ms=4, fmt='D', color='k', elinewidth=0.3,
-                capsize=2, label='Stokes P', linestyle='-')
-    ax.yaxis.set_major_locator(MaxNLocator(4))
-    ax.xaxis.set_major_locator(MaxNLocator(4))
-    xRange = (np.nanmax(freqArr_Hz)-np.nanmin(freqArr_Hz))/1e9 
-    ax.set_xlim( np.min(freqArr_Hz)/1e9 - xRange*0.05,
-                 np.max(freqArr_Hz)/1e9 + xRange*0.05)
-    ax.set_xlabel('$\\nu$ (GHz)')
-    ax.set_ylabel('Flux Density (mJy)')
-
-    # Format tweaks
-    ax = tweakAxFormat(ax)
-    ax.relim()
-    ax.autoscale_view()
-
-
-#-----------------------------------------------------------------------------#
-def plotSpecRMS(sessionPath, uniqueName, io='fig'):
-
-    specDir = sessionPath + '/OUT'
-    
-    # Setup the figure
-    fig = Figure()
-    fig.set_size_inches([8,4])
-
-    # Load the Stokes I, Q and U rms spectra
-    specIdat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
-    specIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
-    specQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
-    specQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
-    specUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
-    specUArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
-    specPIArrY = np.sqrt(np.power(specQArr[1],2) + np.power(specUArr[1],2))
-
-    # Plot the spectra in GHz and mJy
-    ax1 = fig.add_axes([0.12, 0.14, 0.85, 0.80])
-    ax1.plot(specIArr[0]/1e9, specIArr[1]*1e3, marker='+', color='k',
-             lw='0.5', label='rms I')
-    ax1.plot(specQArr[0]/1e9, specQArr[1]*1e3, marker='+', color='b',
-             lw='0.5', label='rms Q')
-    ax1.plot(specUArr[0]/1e9, specUArr[1]*1e3, marker='+', color='r',
-             lw='0.5', label='rms U')
-    ax1.text(0.05, 0.89, 'I, Q & U RMS', transform=ax1.transAxes)
-    
-    # Format tweaks
-    ax1 = tweakAxFormat(ax1)
-    
-    # Set axis limits and labels
-    ax1.set_xlim( np.min(specQArr[0])/1e9, np.max(specQArr[0])/1e9)
-    ax1.set_xlabel('$\\nu$ (GHz)')
-    ax1.set_ylabel('Flux Density (mJy bm$^{-1}$)')
-
-    # Write to the pipe
-    if io=='string':
-        sio = StringIO.StringIO()
-        setattr(sio, "name", "foo.jpg")
-        fig.savefig(sio, format='jpg' )    
-        return sio
-    else:
-        return fig
-    
-
-#-----------------------------------------------------------------------------#
 def plotSpecParms(sessionPath, uniqueName, io='fig'):
     
     specDir = sessionPath + '/OUT'
@@ -264,40 +68,39 @@ def plotSpecParms(sessionPath, uniqueName, io='fig'):
 
     # Load the Stokes I spectrum and model
     specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
-    specIArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
+    IArr = np.loadtxt(specIdat, delimiter=' ', unpack=True)
     
-    specdIdat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
-    specdIArr = np.loadtxt(specdIdat, delimiter=' ', unpack=True)
+    rmsSpecIDat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
+    rmsIArr = np.loadtxt(rmsSpecIDat, delimiter=' ', unpack=True)
     
-    modelIdat = specDir +  '/' + uniqueName +  '_specImodel.dat'
-    modelIArr = np.loadtxt(modelIdat, delimiter=' ', unpack=True)
+    specImodelDat = specDir +  '/' + uniqueName +  '_specImodel.dat'
+    modelIArr = np.loadtxt(specImodelDat, delimiter=' ', unpack=True)
 
     # Load the Stokes Q and U spectra
     specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
-    specQArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
+    QArr = np.loadtxt(specQdat, delimiter=' ', unpack=True)
     
-    specdQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
-    specdQArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
+    rmsSpecQdat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
+    rmsQArr = np.loadtxt(rmsSpecQdat, delimiter=' ', unpack=True)
     
     specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
-    specUArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
-    
-    specdUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
-    specdUArr = np.loadtxt(specdQdat, delimiter=' ', unpack=True)
+    UArr = np.loadtxt(specUdat, delimiter=' ', unpack=True)
+
+    rmsSpecUdat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
+    rmsUArr = np.loadtxt(rmsSpecUdat, delimiter=' ', unpack=True)
     
     # Calculate fractional polarisation spectra
-    qArr = specQArr[1] / modelIArr[1]
-    uArr = specUArr[1] / modelIArr[1]
-    dqArr = qArr * np.sqrt( (specdQArr/specQArr)**2.0 +
-                            (specdIArr/specIArr)**2.0 )
-    duArr = uArr * np.sqrt( (specdUArr/specUArr)**2.0 +
-                            (specdIArr/specIArr)**2.0 )
-
-    lamSqArr_m2 = np.power(C/specIArr[0], 2.0)
+    qArr = QArr[1] / modelIArr[1]
+    uArr = UArr[1] / modelIArr[1]
+    dqArr = qArr * np.sqrt( (rmsQArr[1]/QArr[1])**2.0 + 
+                            (rmsIArr[1]/IArr[1])**2.0 )
+    duArr = uArr * np.sqrt( (rmsUArr[1]/UArr[1])**2.0 + 
+                            (rmsIArr[1]/IArr[1])**2.0 )
+    lamSqArr_m2 = np.power(C/IArr[0], 2.0)
     plot_QUfit_spectra(fig=fig,
                        lamSqArr_m2 = lamSqArr_m2,
-                       IArr_mJy = specIArr[1]*1e3,
-                       dIArr_mJy = specdIArr[1]*1e3,
+                       IArr_mJy = IArr[1]*1e3,
+                       dIArr_mJy = rmsIArr[1]*1e3,
                        qArr = qArr,
                        dqArr = dqArr,
                        uArr = uArr,

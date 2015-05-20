@@ -59,16 +59,24 @@ def main():
     descStr = """
     Loop through the FITS files linked to the current session and extract I, Q
     and U spectra at the positions of sources. The catalogue should already
-    exist  in the database, loaded by the 'create_image_session.py' script.
+    exist in the database, loaded by the 'create_image_session.py' script.
     That script has also created a 'PATH/TO/SESSION/inputs.config' file, used
     to set the pipeline input parameters. Spectra extracted for each source
-    will be saved to a directory called PATH/TO/SESSION/OUT, which is
-    optionally overwritten if it already exists. Each spectra is saved as an
-    ASCII vector file named for the position on the sky.
+    will be saved to a directory called 'PATH/TO/SESSION/OUT', which is can be
+    overwritten if it already exists (using the -o flag). Each spectra is saved
+    as an ASCII vector file named for the position on the sky.
+
+    Note: The measurements on the spectra are saved to the SQLite database in
+    the file 'PATH/TO/SESSION/session.sqlite'.
+    
+    Example:
+    
+    ./3_extract_spectra.py testSession/
     """
 
     # Parse the command line options
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,
+                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
                         help="Path to the new session directory [no default]")
     parser.add_argument("-o", dest="doOverwrite", action="store_true",

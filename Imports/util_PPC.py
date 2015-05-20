@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 20-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -184,6 +184,9 @@ class PipelineInputs:
         else:
             dPhi_radm2 = float(self.config.get("RMsynthesis", "dPhi_radm2"))
             phiMax_radm2 = float(self.config.get("RMsynthesis", "phiMax_radm2"))
+
+        # Force the minimum phiMax
+        phiMax_radm2 = max(phiMax_radm2, 600.0)
             
         # Faraday depth sampling. Zero always centred on middle channel
         nChanRM = round(abs((phiMax_radm2 - 0.0) / dPhi_radm2)) * 2.0 + 1.0

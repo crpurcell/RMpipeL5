@@ -16,7 +16,7 @@
 #           input file with sensible input parameters determined from the     #
 #           properties of the data.                                           #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 20-May-2015 by C. Purcell                                         #
 #                                                                             #
 #=============================================================================#
 
@@ -65,19 +65,28 @@ def main():
     descStr = """
     Create a new pipeline processing session under the PATH/TO/SESSION
     directory and link to the data in the PATH/TO/DATA directory. 'SESSION' is
-    the session name and this directory is created if necessary or (optionally)
-    overwritten if it already exists. The data (in FITS format) must exist and
-    have been verified using the 'verify_image_data.py' script. An ASCII source
-    catalogue file must be provided. The catalogue format defaults to that
-    produced by the Aegean source-finder. Alternative formats may be specified
-    by a SQL statement in the CATFORMATFILE, given as a command line argument
-    (see the example file in Imports/templates/catDescDefault.sql). This script
-    creates a pipeline input file 'PATH/TO/SESSION/pipeline.in', populated
-    with sensible defaults based on the parameters of the data.
+    the session name and this directory is created if necessary or overwritten
+    if it already exists (using the -o flag). The data (in FITS format) must
+    exist and have been verified using the 'verify_image_data.py' script. An
+    ASCII source catalogue file must be provided. The catalogue format defaults
+    to that produced by the Aegean source-finder. Alternative formats may be
+    specified by a SQL statement in the CATFORMATFILE, given as a command line
+    argument (see the example file in Imports/templates/catDescDefault.sql).
+    This script creates a pipeline input file 'PATH/TO/SESSION/inputs.config',
+    populated with sensible defaults based on the parameters of the data.
+
+    Note: The input catalogue and all results are saved to a SQLite database
+    in the file 'PATH/TO/SESSION/session.sqlite'.
+    
+    Example:
+
+    ./2_create_image_session.py testData/ testSession/ testData/testCat.dat
+                                testData/testCatDesc.sql
     """
     
     # Parse the command line options
-    parser = argparse.ArgumentParser(description=descStr)
+    parser = argparse.ArgumentParser(description=descStr,
+                                 formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-o", dest="doOverwrite", action="store_true",
                         help="Overwrite (delete) existing session")
     parser.add_argument("dataPath", metavar="PATH/TO/DATA", nargs=1,
