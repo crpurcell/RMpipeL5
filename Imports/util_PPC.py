@@ -7,17 +7,17 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 20-May-2015 by C. Purcell                                         #
+# MODIFIED: 28-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
 #  PipelineInputs       ... class to contain the pipeline inputs and file     #
+#  DataManager          ... class to interface with the database and data     #
 #  config_read          ... read a key=value format text file                 #
 #  deg2dms              ... convert decimal degrees to dms string             #
 #  fail_not_exists      ... check for dir/file existence, exit if missing     #
 #  set_statusfile       ... set text in an ASCII status file                  #
 #  read_statusfile      ... read text in an ASCII status file                 #
-#  # read_paths         ... read the paths from an external file              #
 #  load_vector_fail     ... load a single-column vector from a text file      #
 #  cat_to_recarray      ... convert ASCII catalogue file to a record array    #
 #  extract_spec_noise   ... extract source and noise spectra from FITS file(s)#
@@ -44,6 +44,10 @@ import math as m
 import numpy as np
 import numpy.ma as ma
 import ConfigParser
+import sqlite3
+
+from util_DB import select_into_arr
+from util_DB import get_tables_description
 
 C = 2.997924538e8 # Speed of light [m/s]
 
@@ -241,6 +245,175 @@ class PipelineInputs:
         else:
             return []
         
+
+#-----------------------------------------------------------------------------#
+class DataManager:
+    """Class to interface with the database and datasets."""
+
+    def __init__(self, sessionPath):
+        self.sessionPath = sessionPath
+        self.dbFile =  sessionPath + "/session.sqlite"
+        self.pipeInpObj = None
+        self.pDict = None
+        self.summaryRec = None
+        self.tempRec = None
+
+        # Load the session inputs
+        self._load_pipeInputs()
+        
+        # Connect to the database and load a summary table
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        self._load_summaryTab(cursor)
+        cursor.close()
+        conn.close()
+
+    def _load_pipeInputs(self):
+
+        # Create a PipelineInput class, in the process reading in the 
+        # pipeline input file and calculating the derived parameters
+        inputFile = self.sessionPath + "/inputs.config"
+        self.pipeInpObj = PipelineInputs(inputFile)
+        self.pipeInpObj.calculate_derived_parms(resetPhiSamp=False)
+        self.pDict = self.pipeInpObj.get_flat_dict(includeDerived=True)
+        
+    def _load_summaryTab(self, cursor):
+        sql = """
+        SELECT
+        sourceCat.uniqueName,
+        sourceCat.x_deg,
+        sourceCat.y_deg,
+        spectraParms.fluxMedI_Jybm as fluxI_mJy,
+        dirtyFDFparms.ampPeakPIfit_Jybm as peakPI_mJybm,
+        dirtyFDFparms.phiPeakPIfit_rm2 as RM_radm2,
+        dirtyFDFparms.snrPIfit as SNR,
+        polAngleFit_deg as PA_deg
+        FROM sourceCat
+        LEFT JOIN spectraParms
+        ON sourceCat.uniqueName = spectraParms.uniqueName
+        LEFT JOIN dirtyFDFparms
+        ON sourceCat.uniqueName = dirtyFDFparms.uniqueName
+        """
+        self.summaryRec = select_into_arr(cursor, sql)
+
+    def indx2name(self, indx):
+        return self.summaryRec["uniqueName"][indx]
+    
+    def name2indx(self, name):
+        return np.argwhere(self.summaryRec["uniqueName"]==name)[0][0]
+
+    def get_specI_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
+        freqArr_Hz, IArr_Jy = np.loadtxt(specIdat, delimiter=" ", unpack=True)
+        rmsSpecIDat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
+        dummy, rmsIArr_Jy = np.loadtxt(rmsSpecIDat, delimiter=" ", unpack=True)
+        return freqArr_Hz, IArr_Jy, rmsIArr_Jy
+        
+    def get_specI_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_specI_byname(uniqueName)
+
+    def get_modI_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        specImodelDat = specDir +  '/' + uniqueName +  '_specImodel.dat'
+        freqArr_Hz, modIArr_Jy = np.loadtxt(specImodelDat, delimiter=" ",
+                                            unpack=True)
+        return freqArr_Hz, modIArr_Jy
+    
+    def get_modI_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_modI_byname(uniqueName)
+    
+    def get_specQ_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
+        freqArr_Hz, QArr_Jy = np.loadtxt(specQdat, delimiter=" ", unpack=True)
+        rmsSpecQDat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
+        dummy, rmsQArr_Jy = np.loadtxt(rmsSpecQDat, delimiter=" ", unpack=True)
+        return freqArr_Hz, QArr_Jy, rmsQArr_Jy
+        
+    def get_specQ_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_specQ_byname(uniqueName)
+
+    def get_specU_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
+        freqArr_Hz, UArr_Jy = np.loadtxt(specUdat, delimiter=" ", unpack=True)
+        rmsSpecUDat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
+        dummy, rmsUArr_Jy = np.loadtxt(rmsSpecUDat, delimiter=" ", unpack=True)
+        return freqArr_Hz, UArr_Jy, rmsUArr_Jy
+        
+    def get_specU_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_specU_byname(uniqueName)
+
+    def get_RMSF_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        RMSFdat =  specDir +  '/' + uniqueName +  '_RMSF.dat'
+        phiArr, RMSFreal, RMSFimag = np.loadtxt(RMSFdat, delimiter=' ',
+                                                unpack=True)
+        RMSFArr =  (RMSFreal + 1j * RMSFimag)
+        return phiArr, RMSFArr
+        
+    def get_RMSF_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_RMSF_byname(uniqueName)
+
+    def get_dirtyFDF_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        FDFdat = specDir +  '/' + uniqueName +  '_dirtyFDF.dat'
+        phiArr, FDFreal_Jy, FDFimag_Jy = np.loadtxt(FDFdat, delimiter=' ',
+                                                unpack=True)
+        FDFArr_Jy =  (FDFreal_Jy + 1j * FDFimag_Jy)
+        return phiArr, FDFArr_Jy
+
+    def get_dirtyFDF_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_dirtyFDF_byname(uniqueName)
+
+    def get_cleanFDF_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        FDFdat = specDir +  '/' + uniqueName +  '_cleanFDF.dat'
+        phiArr, FDFreal_Jy, FDFimag_Jy = np.loadtxt(FDFdat, delimiter=' ',
+                                                unpack=True)
+        FDFArr_Jy =  (FDFreal_Jy + 1j * FDFimag_Jy)
+        return phiArr, FDFArr_Jy
+
+    def get_cleanFDF_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_cleanFDF_byname(uniqueName)
+    
+    def get_ccFDF_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        ccFDFdat = specDir +  '/' + uniqueName +  '_cleanFDFPImodel.dat'
+        phiArr, ccFDF_Jy = np.loadtxt(ccFDFdat, delimiter=' ', unpack=True)
+        return phiArr, ccFDF_Jy
+
+    def get_ccFDF_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_ccFDF_byname(uniqueName)
+
+    def get_database_schema(self):
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        descDict = get_tables_description(cursor)
+        cursor.close()
+        conn.close()
+        return descDict
+
+    def query_database(self, sql):
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        self.tempRec = select_into_arr(cursor, sql)
+        cursor.close()
+        conn.close()
+    
+    def close():
+        cursor.close()
+        conn.close()
+
 
 #-----------------------------------------------------------------------------#
 def config_read(filename, delim='=', doValueSplit=True):

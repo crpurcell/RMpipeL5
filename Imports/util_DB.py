@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Functions to interface with a sqlite3 database.                   #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 28-May-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -15,6 +15,7 @@
 #  update_arr_db            ... update DB entries using a recarray            #
 #  select_into_arr          ... run a SQL query and return a numpy recarray   #
 #  schema_to_tabledef       ... parse the SQL table definitions               #
+#  get_tables_description   ... get the description of all tables in a DB     #
 #                                                                             #
 #=============================================================================#
 
@@ -230,3 +231,20 @@ def schema_to_tabledef(schemaFile, addColDict={}):
             tableDefDict[tableName] = colDefLst
 
     return tableDefDict, tableSQLdict
+
+
+#-----------------------------------------------------------------------------#
+def get_tables_description(cursor):
+    """
+    Return a dictionary contain PRAGMA table_info(tabName) results for all
+    tables in a SQLite database. The dictionary is indexed by table name.
+    """
+    
+    sql = "SELECT name FROM sqlite_master WHERE type='table';"
+    tabNameArr = select_into_arr(cursor, sql)['name']
+    descDict = {}
+    for tabName in tabNameArr:
+        sql = "PRAGMA table_info(%s);" % tabName
+        descDict[tabName] = select_into_arr(cursor, sql)
+
+    return descDict
