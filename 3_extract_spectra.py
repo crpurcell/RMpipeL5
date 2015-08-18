@@ -8,7 +8,7 @@
 # PURPOSE:  Extract spectra from the I, Q & U FITS files linked to a          #
 #           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 17-August-2015 by C. Purcell                                      #
 #                                                                             #
 # TODO:                                                                       #
 #                                                                             #
@@ -32,12 +32,15 @@ from Imports.util_PPC import fail_not_exists
 from Imports.util_PPC import log_wr
 from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
+from Imports.util_PPC import read_dictfile
+from Imports.util_PPC import write_dictfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import select_into_arr
 from Imports.util_DB import insert_arr_db
 
-from Imports.module_spec_extract import mod_spec_extract
+from Imports.module_spec_extract_area import mod_spec_extract
+#from Imports.module_spec_extract import mod_spec_extract
 
 # Constants
 C = 2.99792458e8
@@ -58,13 +61,17 @@ def main():
     # Help string to be shown using the -h option
     descStr = """
     Loop through the FITS files linked to the current session and extract I, Q
-    and U spectra at the positions of sources. The catalogue should already
+    and U data at the positions of sources. The catalogue should already
     exist in the database, loaded by the 'create_image_session.py' script.
     That script has also created a 'PATH/TO/SESSION/inputs.config' file, used
-    to set the pipeline input parameters. Spectra extracted for each source
-    will be saved to a directory called 'PATH/TO/SESSION/OUT', which is can be
-    overwritten if it already exists (using the -o flag). Each spectra is saved
-    as an ASCII vector file named for the position on the sky.
+    to set the pipeline input parameters. Data extracted for each source
+    will be saved to a directory called 'PATH/TO/SESSION/OUT'. For each source
+    in the catalogue the following data are saved to a FITS format file:
+      * A cube centred on each source, or offset if abutting an edge.
+      * A single-plane mask image showing the extraction aperture.
+      * A one dimentional spectrum from the source, RMS and frequency axis.
+    If the output files already exist, default behaviour is to redo the
+    measurements of the spectra. 
 
     Note: The measurements on the spectra are saved to the SQLite database in
     the file 'PATH/TO/SESSION/session.sqlite'.
@@ -80,18 +87,21 @@ def main():
     parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
                         help="Path to the new session directory [no default]")
     parser.add_argument("-o", dest="doOverwrite", action="store_true",
-                        help="Overwrite old extraction files")
+                        help="Overwrite previously extracted files.")
+    parser.add_argument("-r", dest="doReset", action="store_true",
+                        help="Completely reset the OUT/ directory.")
     args = parser.parse_args()
     sessionPath = args.sessionPath[0]
     doOverwrite = args.doOverwrite
+    doReset = args.doReset
 
     # Call the spectral extraction function
-    run_spectral_extraction(sessionPath, doOverwrite)
+    run_spectral_extraction(sessionPath, doOverwrite, doReset)
 
 
 #-----------------------------------------------------------------------------#
-def run_spectral_extraction(sessionPath, doOverwrite=False):
-    
+def run_spectral_extraction(sessionPath, doOverwrite=False, doReset=False):
+
     sessionPath = sessionPath.rstrip("/")
 
     # Check the required directory structure exists or exit
@@ -102,6 +112,14 @@ def run_spectral_extraction(sessionPath, doOverwrite=False):
     LF = open(logFile, "a", 0)
     log_wr(LF, "\n>>> Beginning spectral extraction process.")
     log_wr(LF, "Time: %s" % time.ctime() )
+
+    # Check that the session has been created successfully
+    statusFile = sessionPath + "/status.json"
+    fail_not_exists(statusFile, "file", LF)
+    statusDict = read_dictfile(statusFile)
+    if int(statusDict["session"])<1:
+        log_fail(LF, "Err: Session status file reports session was not " + \
+                     "created successfully.")
 
     # Read and parse the pipeline input file
     inParmFile = sessionPath + "/inputs.config"
@@ -153,14 +171,14 @@ def run_spectral_extraction(sessionPath, doOverwrite=False):
     # (Re)create the output directory if necessary
     outDataDir = sessionPath + "/OUT"
     if os.path.exists(outDataDir):
-        if doOverwrite:
-            log_wr(LF, "Removing existing OUT directory.")
+        log_wr(LF, "Directory '%s' exists." % outDataDir)
+        if doReset:
+            log_wr(LF, "Resetting existing OUT directory.")
             shutil.rmtree(outDataDir, True)
-        else:
-            log_wr(LF, "Err: directory '%s' already exists." % outDataDir)
-            log_fail(LF, "Use -o option to overwrite.")
-    log_wr(LF, "Creating new OUT directory.")
-    os.mkdir(outDataDir)
+            os.mkdir(outDataDir)
+    else:
+        log_wr(LF, "Creating new OUT directory.")
+        os.mkdir(outDataDir)
 
     # Connect to the database
     dbFile = sessionPath + "/session.sqlite"
@@ -188,21 +206,28 @@ def run_spectral_extraction(sessionPath, doOverwrite=False):
                                fitsLstI,
                                fitsLstQ,
                                fitsLstU,
-                               freqArr_Hz,
+                               freqArr_Hz=freqArr_Hz,
                                sumBox_pix=int(pDict["sumBoxPix"]),
                                polyOrd=int(pDict["polyOrd"]),
                                outDataDir=outDataDir,
+                               doOverwrite=doOverwrite,
                                LF=LF)
     
-    # Write the relevant tables to the database
-    insert_arr_db(cursor, specRec, "spectraParms")
-    conn.commit()
+    if True:
+        
+        # Write the relevant tables to the database
+        insert_arr_db(cursor, specRec, "spectraParms")
+        conn.commit()
+        log_wr(LF, "Database updated with spectral parameters.")
 
-    # Close the connection to the database
-    cursor.close()
-    conn.close()
-    log_wr(LF, "Database updated with spectral parameters.")
+        # Close the connection to the database
+        cursor.close()
+        conn.close()
 
+        # Update the status file to reflect successful extraction
+        statusDict["extract"] = 1
+        write_dictfile(statusDict, sessionPath + "/status.json")
+    
 
 #-----------------------------------------------------------------------------#
 if __name__=="__main__":

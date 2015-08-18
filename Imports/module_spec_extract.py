@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy, scipy and astropy modules.                    #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 22-July-2015 by C. Purcell                                        #
 #                                                                             #
 # TODO:                                                                       #
 #           * Catch errors with extraction, fitting and propagate into        #
@@ -41,7 +41,7 @@ from util_FITS import strip_fits_dims
 
 #-----------------------------------------------------------------------------#
 def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
-                     sumBox_pix=3, polyOrd=3, outDataDir='./OUT',
+                     sumBox_pix=3, polyOrd=2, outDataDir='./OUT',
                      nBeams=50.0, LF=None):
     """
     Extract on-source spectra and noise-spectra from Stokes I, Q and U FITS
@@ -65,10 +65,10 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, freqArr_Hz,
                                         required: [uniqueName, x_deg, y_deg]
                fitsLstI             ... ordered list of Stokes I FITS files
                fitsLstQ             ... ordered list of Stokes Q FITS files
-               fitsLstU             ... ordered list of Stokes I FITS files
+               fitsLstU             ... ordered list of Stokes U FITS files
                freqArr_Hz           ... ordered array of frequencies in Hz
                sumBox_pix           ... side of source box in pixels [3]
-               polyOrd=2            ... order of polynomial fit [3]
+               polyOrd=2            ... order of polynomial fit [2]
                outDataDir           ... output directory for spectra [./OUT]
                nBeams               ... area (in beams) of noise aperture
                LF                   ... file-handle for log file [None]
@@ -278,7 +278,7 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
     x_pix = np.round(x_pix).astype('i4')
     y_pix = np.round(y_pix).astype('i4')
 
-    # Determine the pixel bounds of the noise box for each entry
+    # Determine the absolute pixel bounds of the noise box for each entry
     # Noise-box is offset if it overlaps an edge. Assumes box will
     # always be smaller than the image array
     lowLim = np.zeros_like(x_pix)
@@ -327,7 +327,7 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
 
     # TODO:
     # If srcEdgeFlag skip source extraction
-
+    
     # Root names of save files
     saveRootLst = map(''.join,zip([outDataDir + '/']*len(x_pix), names))
     
@@ -372,9 +372,9 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
                     log_fail(LF, errStr)
                 dataSpec = dataSub[yMinSrc_pix[j]:yMaxSrc_pix[j]+1,
                                    xMinSrc_pix[j]:xMaxSrc_pix[j]+1]
-                rms = MAD(dataSub.flatten())
+                rms = MAD(dataSub.flatten())                
                 
-                # Average the spectrum in X and Y directions
+                # Average the spectra in X and Y directions
                 dataSpec = dataSpec.sum(-1).sum(-1)
                 dataSpec *= fNormSumbox
                 
@@ -383,6 +383,15 @@ def extract_spec_planes(cat, fitsLst, freqArr_Hz, halfSideSrc_pix=0,
                 log_wr(LF, traceback.format_exc())
                 rms = None
                 dataSpec = None
+                dataSub = None
+
+            # Save a sub-plane FITS file of the first channel
+            if i==0 and dataSub is not None:
+                headSub = head2D.copy()
+                headSub['CRPIX1'] = head2D['CRPIX1'] - xMinNoise_pix[j]
+                headSub['CRPIX2'] = head2D['CRPIX2'] - yMinNoise_pix[j]
+                outFits = saveRootLst[j] + "_stamp" + suffix + ".fits"
+                pf.writeto(outFits, dataSub, headSub, clobber=True)
 
             # Write the value for the current plane to disk
             # If extraction failed then write a NaN

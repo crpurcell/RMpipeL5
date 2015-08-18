@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Make measurements on a catalogue of Faraday dispersion functions. #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 18-Aug-2015 by C. Purcell                                         #
 #                                                                             #
 # TODO:                                                                       #
 #  * Set a flag if the peak is within RMSF_FWHM/2 of the FDF edge.            #
@@ -15,7 +15,10 @@
 import os
 import sys
 import math as m
+import traceback
 import numpy as np
+
+import astropy.io.fits as pf
 
 from util_PPC import log_fail
 from util_PPC import fail_not_exists
@@ -27,7 +30,7 @@ C = 2.99792458e8
 
 #-----------------------------------------------------------------------------#
 def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
-                    fileSuffix='_dirtyFDF.dat', LF=None):
+                    dirty=True, LF=None):
     
     # Default logging to STDOUT
     if LF is None:
@@ -63,48 +66,68 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
              ('polAngle0Fit_deg', 'f8'),
              ('dPolAngle0Fit_deg', 'f8'),
              ('thresholdSignalPI', 'f8'),
-             ('detectionF', 'i8')]
+             ('detectionF', 'i8'),
+             ('status', 'i8')]
     fdfRec = np.zeros(len(catRec), dtype=dType)
 
     # Loop through the catalogue entries
     log_wr(LF, '\nMeasuring the properties of the FDF catalogue entries ...')
     for i in range(len(catRec)):
+        uniqueName = catRec[i]['uniqueName']
         
-        log_wr(LF, "\nProcessing entry %d: '%s'." %
-               (i+1, catRec[i]['uniqueName']))
-        
-        # Read in the complex FDF
-        inFile = dataDir + '/' + catRec[i]['uniqueName'] + fileSuffix
-        phiArr, FDFreal, FDFimag = np.loadtxt(inFile, unpack=True)
-        FDF = (FDFreal + 1j * FDFimag)
-        mDict = measure_FDF_parms(FDF,
-                                   phiArr,
-                                   catRec[i]['fwhmRMSF'],
-                                   lamSqArr_m2,
-                                   catRec[i]['lam0Sq_m2'],
-                                   catRec[i]['rmsMedQUAvg_Jybm'],
-                                   snrDoBiasCorrect=5.0)
-        # Check for a detection
-        if mDict['snrPIchan'] >= thresholdSignalPI:
-            mDict['detectionF'] = 1
-            log_wr(LF, '> Signal detected at SNR = %.1f' % mDict['snrPIchan'])
-        else:
-            mDict['detectionF'] = 0
-            log_wr(LF, '> No signal detected (SNR = %.1f).' %
-                   mDict['snrPIchan'])
+        log_wr(LF, "\nProcessing entry %d: '%s'." % (i+1, uniqueName))
+        try:
+            
+            # Read in the complex FDF
+            dataFile = dataDir +  '/' + uniqueName +  "_RMSynth.fits"
+            HDULst = pf.open(dataFile, "readonly", memmap=True)
+            if dirty:
+                ext = 3
+            else:
+                ext = 4
+            phiArr = HDULst[3].data["phi"]
+            FDFreal = HDULst[ext].data["FDFreal"]
+            FDFimag = HDULst[ext].data["FDFimag"]
+            FDF = (FDFreal + 1j * FDFimag)
 
-        # TODO: Check if the peak is within half the RMSF of the edge
-        #       set a flag saying detection is near edge
+            # Perform the measurements
+            mDict = measure_FDF_parms(FDF,
+                                      phiArr,
+                                      catRec[i]['fwhmRMSF'],
+                                      lamSqArr_m2,
+                                      catRec[i]['lam0Sq_m2'],
+                                      catRec[i]['rmsMedQUAvg_Jybm'],
+                                      snrDoBiasCorrect=5.0)
+            # Check for a detection
+            if mDict['snrPIchan'] >= thresholdSignalPI:
+                mDict['detectionF'] = 1
+                log_wr(LF, '> Signal detected at SNR = %.1f' % 
+                       mDict['snrPIchan'])
+            else:
+                mDict['detectionF'] = 0
+                log_wr(LF, '> No signal detected (SNR = %.1f).' %
+                       mDict['snrPIchan'])
+
+            # TODO: Check if the peak is within half the RMSF of the edge
+            #       set a flag saying detection is near edge
 
         
-        # Write the measurements to the catalogue
-        for key, val in mDict.iteritems():
-            try:
-                fdfRec[i][key] = val
-            except Exception:
-                pass
-        fdfRec[i]['uniqueName'] = catRec[i]['uniqueName']
-        fdfRec[i]['thresholdSignalPI'] = thresholdSignalPI
+            # Write the measurements to the catalogue
+            for key, val in mDict.iteritems():
+                try:
+                    fdfRec[i][key] = val
+                except Exception:
+                    pass
+            fdfRec[i]['uniqueName'] = catRec[i]['uniqueName']
+            fdfRec[i]['thresholdSignalPI'] = thresholdSignalPI
+            fdfRec[i]['status'] = 1
+        except Exception:
+            fdfRec[i]['uniqueName'] = catRec[i]['uniqueName']
+            fdfRec[i]['thresholdSignalPI'] = thresholdSignalPI
+            fdfRec[i]['status'] = 0
+            log_wr(LF, "Err: failed to process %s." % catRec[i]['uniqueName'])
+            log_wr(LF, traceback.format_exc())
+            continue
 
     return fdfRec
 

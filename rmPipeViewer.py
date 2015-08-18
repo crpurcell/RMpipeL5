@@ -6,7 +6,7 @@
 # PURPOSE:  A graphical interface designed to view the results of the Level 5 #
 #           RM-pipeline prototype.                                            #
 #                                                                             #
-# MODIFIED: 29-May-2015 by cpurcell                                           #
+# MODIFIED: 17-August-2015 by cpurcell                                        #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -16,9 +16,6 @@
 # PipeInputsFrame   ... frame to display the pipeline inputs                  #
 # ResultsFrame      ... frame presenting the summary of results to the user   #
 # DatabaseFrame     ... frame presenting the database tables to the user      #
-# CustomScatterFrame .. frame allowing the user to create a scatter plot      #
-# CustomHistFrame   ... frame allowing the user to create a histogram plot    #
-# ResultsManager    ... class to hold the results summary table in memory     #
 # SingleFigFrame    ... frame presenting pre-defined figures for a source     #
 #                                                                             #
 #=============================================================================#
@@ -44,6 +41,7 @@ import tkFont
 from ScrolledText import ScrolledText
 
 from Imports.util_PPC import DataManager
+from Imports.util_PPC import read_dictfile
 from Imports.util_DB import *
 from Imports.util_tk import *
 from Imports.util_plotTk import *
@@ -112,8 +110,14 @@ class App:
                        self.on_show_result(event, resultType))
         self.root.bind("<<plot_clean_fdf>>", lambda event, 
                        resultType="plot_clean_fdf" : 
-                       self.on_show_result(event, resultType))
-
+                       self.on_show_result(event, resultType))        
+        self.root.bind("<<view_sql_table>>", lambda event :
+                       self.on_view_sql_table(event))  
+        self.root.bind("<<export_sql_table>>", lambda event :
+                       self.on_export_sql_table(event))
+        self.root.bind("<<run_custom_sql>>", lambda event :
+                       self.on_run_custom_sql(event))
+        
         # Create the visualisation window and set the focus back to root
         self.visWin = tk.Toplevel(self.root)
         self.visWin.title("RM Pipeline Viewer - Plotting Window")
@@ -159,8 +163,6 @@ class App:
     def on_load_session(self, event=None):
         """Load in the chosen pipeline session into the GUI."""
 
-        # TODO: Set the pipeline status lights
-        
         # Check that the session exists and has an input file
         sessionPath = self.sessFrm.sesDir.get()
         if not os.path.exists(sessionPath):
@@ -174,6 +176,17 @@ class App:
             tkMessageBox.showinfo("Error", errStr)
             return
         
+        # Read the pipeline status and set the status lights
+        statusFile = sessionPath + "/status.json"
+        statusDict = read_dictfile(statusFile)
+        if int(statusDict["session"])<1:
+            errStr = "Invalid session.\n\nSession status file reports " +\
+                "that the session  was not created successfully."
+            tkMessageBox.showinfo("Error", errStr)
+            return
+        for key, val in statusDict.iteritems():
+            self.sessFrm.set_status(process=key, status=int(val))
+
         # Create a DataManager instance to interface with DB and data
         # The DataManager loads the pipeline inputs, calculates secondary
         # parameters and loads a summary table of results to memory
@@ -184,17 +197,10 @@ class App:
         self.NBFrm.inputsNB.set_entries(self.dataMan.pDict)
 
         # Load the summary table into the GUI
-        # TODO: make this a method of resNB, fix sticky selection on reload
-        self.NBFrm.resNB.resultsTab.clear_entries()
-        print "Loading results summary table into the GUI ...",
-        self.NBFrm.resNB.resultsTab.insert_recarray(self.dataMan.summaryRec)
-        print "done."
-
+        self.NBFrm.resNB.load(self.dataMan.summaryRec)
+        
         # Load the database structure into the GUI
-        # TODO: make this a method of dbNB
-        schemaDict = self.dataMan.get_database_schema()
-        self.NBFrm.dbNB.clear_schematree()
-        self.NBFrm.dbNB.load_schematree(schemaDict)
+        self.NBFrm.dbNB.load(self.dataMan)
 
         # Reset the plotting window
         self.reset_plotting_window()
@@ -211,7 +217,8 @@ class App:
         
         # Clear the plotting window and create the requested plot
         self.reset_plotting_window()
-        if resultType in ["plot_IPQU",
+        if resultType in ["plot_cutouts",
+                          "plot_IPQU",
                           "plot_IQUrms", 
                           "plot_polang",
                           "plot_qup",
@@ -225,7 +232,7 @@ class App:
                                        indx, resultType)
 
         # TODO: implement the show_values and plot_cutouts actions
-        elif resultType in ["show_values", "plot_cutouts"]:
+        elif resultType in ["show_values"]:
             errStr = "The action '%s' is not yet supported." % resultType
             tkMessageBox.showinfo("Error", errStr)
             return
@@ -235,6 +242,60 @@ class App:
         self.visWinFrm.columnconfigure(0, weight=1)
         self.visWinFrm.rowconfigure(0, weight=1)
         self.visWinFrm.grid(row=0, column=0, padx=0, pady=0, sticky="NSEW")
+
+    def on_view_sql_table(self, event=None):
+        """View the results of an SQL query in the plotting window"""
+                
+        self.reset_plotting_window()
+
+        # Run the query
+        try:
+            sql = event.widget.sql
+            tableName = event.widget.tableName
+            rowLimit = event.widget.rowLimit
+        except Exception:
+            return
+        if sql is None or sql=="":
+            return
+        self.dataMan.query_database(sql)
+
+        # Push results into GUI
+        titleStr = "Table '%s' (%s rows):" % (tableName, rowLimit)
+        footerStr = "Click on a column header to sort up or down."
+        resultFrm = SingleTabFrame(self.visWinFrm, titleStr, footerStr)
+        resultFrm.table.insert_recarray(self.dataMan.tempRec)
+        
+        # Grid the table in the visualisation window
+        resultFrm.grid(row=0, column=0, padx=5, pady=5, sticky="NSEW")
+        self.visWinFrm.columnconfigure(0, weight=1)
+        self.visWinFrm.rowconfigure(0, weight=1)
+        self.visWinFrm.grid(row=0, column=0, padx=0, pady=0, sticky="NSEW")
+
+    def on_export_sql_table(self, event=None):
+        """Save the result of a SQL query"""
+        
+        tableName = event.widget.tableName
+        outDir = event.widget.exp1Dir.get()
+        
+        # Check that the directory exists
+        
+        formatStr = event.widget.fmt1Comb.get()
+        self.dataMan.export_table(tableName, formatStr, outDir)
+
+    def on_run_custom_sql(self, event=None):
+        """Run a custom SQL query"""
+        
+        # Run the query
+        try:
+            sql = event.widget.sql            
+        except Exception:
+            return
+        if sql is None or sql=="":
+            return
+        self.dataMan.query_database(sql, buffer=True)
+        outType=event.widget.sqlOutChoice.get()
+        print outType
+        print self.dataMan.tempRec
 
 
 #-----------------------------------------------------------------------------#
@@ -332,7 +393,7 @@ class SessChooseFrame(tk.Frame):
             targetLab = self.rmcleanStatLab
         else:
             return
-        if status==0:            
+        if status==2:            
             targetLab.config(background="orange")
             targetLab.config(foreground="black")
             targetLab.config(text="NA")
@@ -340,7 +401,7 @@ class SessChooseFrame(tk.Frame):
             targetLab.config(background="green")
             targetLab.config(foreground="black")
             targetLab.config(text="OK")
-        if status==2:            
+        if status==0:            
             targetLab.config(background="red")
             targetLab.config(foreground="white")
             targetLab.config(text="Not OK")
@@ -628,7 +689,7 @@ class ResultsFrame(tk.Frame):
         self.act1Btn.grid(row=1, column=2, padx=5, pady=2,sticky="NW")
         # Postage stamp images
         self.act2Lab = tk.Label(self, justify="left",
-                                text="Show Stokes I & P cutout images")
+                                text="Show Stokes I cutout image")
         self.act2Lab.grid(row=2, column=1, padx=5, pady=3, sticky="W")
         self.act2Btn = ttk.Button(self, text="Go",
                                   command=lambda action="plot_cutouts" :
@@ -728,6 +789,14 @@ class ResultsFrame(tk.Frame):
         else:
             return int(self.rowSelected)
 
+    def load(self, recArr):
+        """Reset the summary table and load a recarray"""
+        self.resultsTab.clear_entries()
+        print "Loading results summary table into the GUI ...",
+        self.resultsTab.insert_recarray(recArr)
+        self.rowSelected = None
+        print "done."
+
    
 #-----------------------------------------------------------------------------#
 class DatabaseFrame(tk.Frame):
@@ -741,114 +810,130 @@ class DatabaseFrame(tk.Frame):
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
         self.parent = parent
+        self.dataMan = None
+        self.sql = None
+        self.tableName = ""
+        self.rowLimit = ""
 
         # TreeView of tables
-        self.title1Lab = tk.Label(self, anchor="nw",
+        self.titleSchemaLab = tk.Label(self, anchor="nw",
                                   text="Database Structure:")
-        self.title1Lab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")
+        self.titleSchemaLab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")
         self.schemaFrm = tk.Frame(self)
-        self.schemaFrm.grid(row=1, column=0, rowspan=9, padx=5, pady=2,
+        self.schemaFrm.grid(row=1, column=0, rowspan=8, padx=5, pady=2,
                             sticky="NSEW")
-        self.schemaTree = ScrolledTreeView(self.schemaFrm)
+        self.schemaTree = ScrolledTreeView(self.schemaFrm,
+                                           virtEvent="<<schema_table_selected>>")
         self.schemaTree.tree['columns'] = ("column", "type", "key")
         self.schemaTree.tree['displaycolumns'] = ("type", "key")
         self.schemaTree.tree.heading("#0", text="Table / Column", anchor='w')
         self.schemaTree.tree.heading("column", text="Column Name", anchor='w')
         self.schemaTree.tree.heading("type", text="Data Type", anchor='w')
-        self.schemaTree.tree.heading("key", text="Pri. Key", anchor='w')
+        self.schemaTree.tree.heading("key", text="Primary Key", anchor='w')
         self.schemaTree.tree.column("#0", stretch=1)
         self.schemaTree.tree.column("type", stretch=0, width=100)
-        self.schemaTree.tree.column("key", stretch=0, width=70)
-        self.schemaTree.tree.configure(selectmode="none")
+        self.schemaTree.tree.column("key", stretch=0, width=100)
+        self.schemaTree.tree.configure(selectmode="browse")
         self.schemaTree.grid(row=1, column=0, padx=5, pady=3, sticky="NSEW")
         self.schemaFrm.columnconfigure(0, weight=1)
         self.schemaFrm.rowconfigure(1, weight=1)
+
+        # Currently selected table
+        self.curTabLab = tk.Label(self, anchor="nw", text="Selected Table:")
+        self.curTabLab.grid(row=0, column=1, columnspan=1,
+                            padx=5, pady=3, sticky="EW")
+        self.curTab1Lab = tk.Label(self, anchor="nw",  background="white",
+                                   relief="solid", borderwidth="1")
+        self.curTab1Lab.grid(row=0, column=2, columnspan=2,
+                            padx=5, pady=3, sticky="EW")
+        sep = ttk.Separator(self, orient="horizontal")
+        sep.grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="NSEW")
         
         # View table
-        self.title2Lab = tk.Label(self, anchor="nw",
+        self.titleViewLab = tk.Label(self, anchor="nw",
                                   text="View A Table in the Plot Window:")
-        self.title2Lab.grid(row=1, column=1, columnspan=3,
+        self.titleViewLab.grid(row=2, column=1, columnspan=3,
                             padx=5, pady=3, sticky="EW")
-        self.table1Lab = tk.Label(self, anchor="nw", text="Table Name:")
-        self.table1Lab.grid(row=2, column=1, padx=5, pady=3, sticky="EW")
-        self.table1Comb = ttk.Combobox(self, state="readonly")
-        self.table1Comb.grid(row=2, column=2, padx=5, pady=3, sticky="EW")
         self.nrows1Lab = tk.Label(self, anchor="nw", text="Number of Rows:")
         self.nrows1Lab.grid(row=3, column=1, padx=5, pady=3, sticky="EW")
-        nRowLst = ["100", "500", "1000", "all"]
+        nRowLst = ["20", "50", "100", "500", "all"]
         self.nrows1Comb = ttk.Combobox(self, values=nRowLst, state="readonly")
         self.nrows1Comb.current(0)
         self.nrows1Comb.grid(row=3, column=2, padx=5, pady=3, sticky="EW")
-        self.viewBtn = ttk.Button(self, width=15, text="Go")
-        self.viewBtn.grid(row=2, column=3, rowspan=2, padx=5, pady=2,
+        self.viewBtn = ttk.Button(self, width=10, text="Go", state="disabled",
+                                  command=lambda action="view_table" :
+                                  self._handlerGoButton(action))
+        self.viewBtn.grid(row=3, column=3, rowspan=1, padx=5, pady=2,
                           sticky="NSEW")
         
         sep = ttk.Separator(self, orient="horizontal")
-        sep.grid(row=4, column=1, columnspan=3,padx=5, pady=15, sticky="NSEW")
+        sep.grid(row=4, column=1, columnspan=3,padx=5, pady=5, sticky="NSEW")
         
         # Export table(s)
         self.title3Lab = tk.Label(self, anchor="nw",
                                   text="Export a Table to Disk:")
         self.title3Lab.grid(row=5, column=1, padx=5, pady=3, sticky="EW")
-        self.table2Lab = tk.Label(self, anchor="nw", text="Table Name:")
-        self.table2Lab.grid(row=6, column=1, padx=5, pady=3, sticky="EW")
-        self.table2Comb = ttk.Combobox(self, state="readonly")
-        self.table2Comb.grid(row=6, column=2, padx=5, pady=3, sticky="EW")
-        self.fmt1Lab = tk.Label(self, anchor="nw", text="Save Format:")
-        self.fmt1Lab.grid(row=7, column=1, padx=5, pady=3, sticky="EW")
-        fmtLst = ["CSV", "TSV", "VOT"]
+        
+        self.fmt1Lab = tk.Label(self, anchor="nw", text="Save Format:")        
+        self.fmt1Lab.grid(row=6, column=1, padx=5, pady=3, sticky="EW")
+        fmtLst = ["CSV"] #, "TSV", "VOT"]
         self.fmt1Comb = ttk.Combobox(self, values=fmtLst, state="readonly")
         self.fmt1Comb.current(0)
-        self.fmt1Comb.grid(row=7, column=2, padx=5, pady=3, sticky="EW")
+        self.fmt1Comb.grid(row=6, column=2, padx=5, pady=3, sticky="EW")
         self.direxp1Lab = tk.Label(self, justify="left", anchor="e",
                                   text="Export Directory:")
-        self.direxp1Lab.grid(row=8, column=1, padx=5, pady=5, sticky="NW")
+        self.direxp1Lab.grid(row=7, column=1, padx=5, pady=5, sticky="NW")
         self.browse1Btn = ttk.Button(self, text="Browse",
-                                    command=self._handlerBrowseButton)
-        self.browse1Btn.grid(row=8, column=3, padx=5, pady=2,sticky="NSEW" )
+                                     command=lambda action="browse_export":
+                                     self._handlerBrowseButton(action))
+        self.browse1Btn.grid(row=7, column=3, padx=5, pady=2,sticky="NSEW" )
         self.exp1Dir = tk.StringVar()
         self.direxp1Ent = ttk.Entry(self, textvariable=self.exp1Dir)
-        self.direxp1Ent.grid(row=9, column=1, columnspan=3, padx=5, pady=5,
+        self.direxp1Ent.grid(row=8, column=1, columnspan=3, padx=5, pady=5,
                             sticky="EW")
         self.exp1Dir.set(os.getcwd())
-        self.expBtn = ttk.Button(self, width=15, text="Go")
-        self.expBtn.grid(row=6, column=3, rowspan=2, padx=5, pady=2,
-                          sticky="NSEW")
+        self.expBtn = ttk.Button(self, width=10, text="Go", state="disabled",
+                                 command=lambda action="export_table":
+                                 self._handlerGoButton(action))
+        self.expBtn.grid(row=6, column=3, rowspan=1, padx=5, pady=2,
+                         sticky="NSEW")
         
+        # Blank row 9 is stretchable separator
         #sep = ttk.Separator(self, orient="horizontal")
-        #sep.grid(row=10, column=0, columnspan=4, padx=5, pady=15,
-        #         sticky="EW")
+        #sep.grid(row=9, column=0, columnspan=4, padx=5, pady=15, sticky="NSEW")
         
-        # SQL Query
+        # SQL Query - TODO: IN DEVELOPMENT
         self.sqlFrm = tk.Frame(self)
-        #self.sqlFrm.grid(row=11, column=0, columnspan=6, padx=5, pady=3, 
-        #                 sticky="SEW")
+        self.sqlFrm.grid(row=10, column=0, columnspan=6, padx=5, pady=3, 
+                         sticky="NSEW")
         self.title4Lab = tk.Label(self.sqlFrm, anchor="nw",
                                   text="Run a SQL Query on the Database:")
         self.title4Lab.grid(row=0, column=0, columnspan=6, padx=5, pady=3,
                             sticky="EW")
         self.sqlTextBox = ScrolledText(self.sqlFrm, height=3)
         self.sqlTextBox.grid(row=1, column=0, columnspan=7, padx=5, pady=3, 
-                             sticky="EW")
+                             sticky="NSEW")
         self.sqlTextBox.frame.configure(relief="solid", borderwidth="1")
+        sql = "SELECT * FROM sourceCat"
+        self.sqlTextBox.insert("1.0", sql)
         self.queryBtn = ttk.Button(self.sqlFrm, text="Run Query", width=10,
                                    command=self._handlerQueryButton)
         self.queryBtn.grid(row=2, column=0, rowspan=3, padx=5, pady=5,
                            sticky="NSEW" )
-        sqlOutChoice = tk.StringVar()
+        self.sqlOutChoice = tk.StringVar()
         self.sqlViewRad = ttk.Radiobutton(self.sqlFrm, 
-                                      variable=sqlOutChoice, value="view",
+                                      variable=self.sqlOutChoice, value="view",
                                  text="View result table in plotting window")
         self.sqlViewRad.grid(row=2, column=1, padx=5, pady=2, sticky="NW" )
         self.sqlDBRad = ttk.Radiobutton(self.sqlFrm, 
-                                        variable=sqlOutChoice, value="db",
+                                        variable=self.sqlOutChoice, value="db",
                                  text="Save result as new table in database")
         self.sqlDBRad.grid(row=3, column=1, padx=5, pady=2, sticky="NW" )
         self.sqlExpRad = ttk.Radiobutton(self.sqlFrm, 
-                                         variable=sqlOutChoice, value="exp",
+                                         variable=self.sqlOutChoice, value="exp",
                                        text="Export result of query to disk")
         self.sqlExpRad.grid(row=4, column=1, padx=5, pady=2, sticky="NW")
-        sqlOutChoice.set("view")
+        self.sqlOutChoice.set("view")
 
         sep = ttk.Separator(self.sqlFrm, orient="vertical")
         sep.grid(row=2, column=2, rowspan=3, padx=5, pady=5, sticky="NS")
@@ -857,12 +942,12 @@ class DatabaseFrame(tk.Frame):
                                   text="New Table:")
         self.table3Lab.grid(row=2, column=3, padx=5, pady=3, sticky="EW")
         self.table1Ent = ttk.Entry(self.sqlFrm)
-        self.table1Ent.insert(0, "newTable1")
+        self.table1Ent.insert(0, "newTable")
         self.table1Ent.grid(row=2, column=4, padx=5, pady=5, sticky="EW")
         
         self.fmt2Lab = tk.Label(self.sqlFrm, anchor="nw", text="Save Format:")
         self.fmt2Lab.grid(row=2, column=5, padx=5, pady=3, sticky="EW")
-        fmtLst = ["CSV", "TSV", "VOT"]
+        fmtLst = ["CSV"] #, "TSV", "VOT"]
         self.fmt2Comb = ttk.Combobox(self.sqlFrm, values=fmtLst, width=5,
                                      state="readonly")
         self.fmt2Comb.current(0)
@@ -873,37 +958,76 @@ class DatabaseFrame(tk.Frame):
                                   text="Export Directory:")
         self.direxp2Lab.grid(row=3, column=3, padx=5, pady=5, sticky="NW")
         self.browse2Btn = ttk.Button(self.sqlFrm, text="Browse",
-                                    command=self._handlerBrowseButton)
+                                     command=lambda action="browse_query":
+                                     self._handlerBrowseButton(action))
         self.browse2Btn.grid(row=3, column=6, padx=5, pady=2,sticky="NSEW" )
         self.exp2Dir = tk.StringVar()
         self.direxp2Ent = ttk.Entry(self.sqlFrm, textvariable=self.exp2Dir)
         self.direxp2Ent.grid(row=4, column=3, columnspan=4, padx=5, pady=5,
                             sticky="EW")
-        self.exp1Dir.set(os.getcwd())
+        self.exp2Dir.set(os.getcwd())
         
+        self.sqlFrm.rowconfigure(1, weight=1)
         self.sqlFrm.columnconfigure(2, weight=1)
         
         # Bindings
-        self.schemaTree.bind("<<tree_selected>>", self.on_tree_selected)
+        self.schemaTree.bind("<<schema_table_selected>>", self.on_tree_selected)
 
         # Set the expansion behaviour
         self.columnconfigure(0, weight=1)
         self.rowconfigure(10, weight=1)
 
-
-    def _handlerBrowseButton(self):
+    def _handlerGoButton(self, action):
+        """Handle events for the view and export table buttons"""
+        if self.tableName is None or self.tableName=="":
+            errStr = "Please select a table in the box on the left."
+            tkMessageBox.showinfo("Error", errStr)
+            return
+        
+        if action=="view_table":
+            self.sql = "SELECT * FROM %s" % self.tableName
+            self.rowLimit =  self.nrows1Comb.get()
+            try:
+                limit = int(rowLimit)
+                if limit>0:
+                    self.sql += " LIMIT %d" % limit
+            except Exception:
+                pass
+            self.event_generate("<<view_sql_table>>")
+            
+        if action=="export_table":
+            self.sql = "SELECT * FROM %s" % self.tableName
+            self.event_generate("<<export_sql_table>>")
+        
+    def _handlerBrowseButton(self, action):
         """Open the file selection dialog."""
         saveDir = tkFileDialog.askdirectory(parent=self, initialdir=".",
              title="Please select a directory in which to save files")
-        if saveDir!="":        
-            self.saveDir.set(saveDir)
+        if saveDir!="":
+            if action=="browse_export":
+                self.exp1Dir.set(saveDir)
+            if action=="browse_query":
+                self.exp2Dir.set(saveDir)
             
     def _handlerQueryButton(self):
-        pass
-        
-    def on_tree_selected(self, event=None):
-        self.schemaTree.get_text_selected()        
+        """Run a custom SQL query on the data"""
+        self.sql = self.sqlTextBox.get("1.0","end-1c")
+        self.event_generate("<<run_custom_sql>>")
 
+    def load(self, dataMan):
+        """Load the tables from a datamanager instance"""
+        self.sql = None
+        self.dataMan = dataMan        
+        schemaDict = self.dataMan.get_database_schema()
+        self.clear_schematree()
+        self.load_schematree(schemaDict)        
+        self.viewBtn.configure(state="enabled")
+        self.expBtn.configure(state="enabled")
+        
+    def on_tree_selected(self, event=None):        
+        dummy, self.tableName = self.schemaTree.get_text_selected()
+        self.curTab1Lab.configure(text=self.tableName)
+        
     def clear_schematree(self):
         """Clear all the entries from the schema tree."""
 
@@ -924,7 +1048,7 @@ class DatabaseFrame(tk.Frame):
                 colNode = self.schemaTree.tree.insert(tabNode, 'end',
                     text=e['name'],values=[e['name'], e["type"],
                                            "yes" if e["pk"]==1 else "no"])
-        
+    
         
 #-----------------------------------------------------------------------------#
 class SingleFigFrame(tk.Frame):
@@ -967,6 +1091,9 @@ class SingleFigFrame(tk.Frame):
         elif resultType=="plot_clean_fdf":
             titleStr = "Clean FDF and CC spectrum"
             fig = plotCleanFDF(self.dataMan, indx)
+        elif resultType=="plot_cutouts":
+            titleStr = "Stokes I postage stamp image"
+            fig = plotStampI(self.dataMan, indx)
         else:
             return
         
@@ -986,6 +1113,27 @@ class SingleFigFrame(tk.Frame):
         self.frame.rowconfigure(1, weight=1)
 
 
+#-----------------------------------------------------------------------------#
+class SingleTabFrame(tk.Frame):
+    """Frame presenting a single table from a recArray"""
+
+    def __init__(self, parent, title="", footer=""):
+        tk.Frame.__init__(self, parent)
+        self.parent = parent
+        
+        # Table 
+        self.titleLab = tk.Label(self, justify="left", anchor="nw",
+                                  text=title)
+        self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")        
+        self.table = ScrolledTreeTab(self)
+        self.table.grid(column=0, row=1, padx=5, pady=3, sticky="NSEW")
+        self.footerLab = tk.Label(self, justify="left", anchor="nw",
+                                  text=footer)
+        self.footerLab.grid(column=0, row=2,padx=5, pady=3, sticky="EW")
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        
+        
 #-----------------------------------------------------------------------------#
 if __name__ == "__main__":
     root = tk.Tk()

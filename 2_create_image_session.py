@@ -11,12 +11,12 @@
 #           linked to the session. The data must have been processed using    #
 #           the 'verify_image_data.py' script. The ASCII catalogue file is    #
 #           described by a SQL statement in the optional CATFORMATFILE and    #
-#           defaults to the format produced by the Aegean source-finder.      #
+#           defaults to a minimal format 'name, x_deg, y_deg'.                #
 #           This script performs some sanity-checks and creates a pipeline    #
 #           input file with sensible input parameters determined from the     #
 #           properties of the data.                                           #
 #                                                                             #
-# MODIFIED: 20-May-2015 by C. Purcell                                         #
+# MODIFIED: 17-July-2015 by C. Purcell                                        #
 #                                                                             #
 #=============================================================================#
 
@@ -31,6 +31,7 @@ import ConfigParser
 import string
 import math as m
 import numpy as np
+from collections import Counter
 
 from Imports.util_PPC import PipelineInputs
 from Imports.util_PPC import fail_not_exists
@@ -39,11 +40,15 @@ from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
 from Imports.util_PPC import deg2dms
 from Imports.util_PPC import cat_to_recarray
+from Imports.util_PPC import write_dictfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import create_db
 from Imports.util_DB import insert_arr_db
 from Imports.util_DB import schema_to_tabledef
+from Imports.util_DB import mk_primary_key
+from Imports.util_DB import sql_create_to_numpy_dtype
+
 
 # Constants
 C = 2.99792458e8
@@ -65,18 +70,22 @@ def main():
     descStr = """
     Create a new pipeline processing session under the PATH/TO/SESSION
     directory and link to the data in the PATH/TO/DATA directory. 'SESSION' is
-    the session name and this directory is created if necessary or overwritten
+    the session name and this directory is created if necessary, or overwritten
     if it already exists (using the -o flag). The data (in FITS format) must
     exist and have been verified using the 'verify_image_data.py' script. An
     ASCII source catalogue file must be provided. The catalogue format defaults
-    to that produced by the Aegean source-finder. Alternative formats may be
-    specified by a SQL statement in the CATFORMATFILE, given as a command line
-    argument (see the example file in Imports/templates/catDescDefault.sql).
-    This script creates a pipeline input file 'PATH/TO/SESSION/inputs.config',
-    populated with sensible defaults based on the parameters of the data.
+    to a simple ASCII file with three columns 'uniqueName, x_deg, y_deg'.
+    Alternative formats may be specified by a SQL statement in the
+    CATFORMATFILE, given as a command line argument (see the example file in
+    Imports/templates/catDescAegean.sql for a more complicated example
+    corresponding to the Aegean source-finder). This script creates a pipeline
+    input file 'PATH/TO/SESSION/inputs.config', populated with sensible
+    default parameters based on the properties of the data.
 
     Note: The input catalogue and all results are saved to a SQLite database
-    in the file 'PATH/TO/SESSION/session.sqlite'.
+    in the file 'PATH/TO/SESSION/session.sqlite'. Some recommended viewers are:
+    https://addons.mozilla.org/en-us/firefox/addon/sqlite-manager/
+    https://github.com/sqlitebrowser/sqlitebrowser
     
     Example:
 
@@ -150,6 +159,13 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     except Exception:
         print "Err: Failed to open the log file '%s'." % logFile
         sys.exit()
+
+    # Write a status file to keep track of pipeline tasks performed
+    statusDict = {"session": 0,
+                  "extract": 0,
+                  "rmsynth": 0,
+                  "rmclean": 0}
+    write_dictfile(statusDict, sessionPath + "/status.json")
     
     # Check other inputs exist
     dataPath = "." if dataPath=="" else dataPath
@@ -162,47 +178,66 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
 
     # Check that the catalogue description file has X and Y columns
     log_wr(LF, "Parsing catalogue description file '%s'" % catFormatPath)
-    catDefDict, catSQLdict = schema_to_tabledef(catFormatPath,
-              addColDict={"sourceCat":"uniqueName varchar(20) PRIMARY KEY"})
+    catDtypeDict, catSQLdict = schema_to_tabledef(catFormatPath)
+    catHasUniqueName = False
     catHasX = False
     catHasY = False
-    countUniqueName = 0
-    for e in catDefDict["sourceCat"]:
+    for e in catDtypeDict["sourceCat"]:
         if e[0]=="x_deg":
             catHasX = True
         if e[0]=="y_deg":
             catHasY = True
         if e[0]=="uniqueName":
-            countUniqueName += 1
+            catHasUniqueName = True
     if catHasX is False:
         log_fail(LF, "Catalogue description missing 'x_deg' column.")
     if catHasY is False:
         log_fail(LF, "Catalogue description missing 'y_deg' column.")
-    if countUniqueName>1:
-        log_fail(LF, "Catalogue description contains reserved" + \
-                     "'uniqueName' column. Please rename in description.")
-    log_wr(LF, "Catalogue description contains 'x_deg' and 'y_deg' columns.")
+    if catHasUniqueName is True:
+        # Make sure uniqueName is a primary key
+        catSQLdict["sourceCat"] = mk_primary_key(catSQLdict["sourceCat"], 
+                                                 "uniqueName")
+    else:
+        # Add a new uniqueName column to the source catalogue
+        catDtypeDict, catSQLdict = \
+            sql_create_to_numpy_dtype(catSQLdict["sourceCat"],
+                 addColDict={"sourceCat":"uniqueName varchar(20) PRIMARY KEY"})
+    if catHasUniqueName:
+        log_wr(LF, "Cat description contains 'uniqueName', 'x_deg' " + 
+               "and 'y_deg' columns.")
+    else:
+        log_wr(LF, "Cat description contains 'x_deg' and 'y_deg' columns.")
 
     # Read the input catalogue to a record array
     log_wr(LF, "Reading the catalogue into memory ...")
     try:
-        catRec = cat_to_recarray(catPath, catDefDict["sourceCat"],
-                                 delim=" ", LF=LF)
+        catRec = cat_to_recarray(catPath, catDtypeDict["sourceCat"],
+                                 delim=" ", addUniqueName=not(catHasUniqueName),
+                                 LF=LF)
     except Exception:
         log_wr(LF, "Failed to parse or read catalogue.")
         log_fail(LF, traceback.format_exc())
 
-    # Populate the unique-name field
-    log_wr(LF, "Assigning a unique name to each entry (position based).")
-    for i in range(len(catRec)):
-        catRec[i]["uniqueName"] = \
-             deg2dms(catRec[i]["x_deg"]/15.0, delim="", nPlaces=1) + \
-             deg2dms(catRec[i]["y_deg"], delim="", doSign=True, nPlaces=2)
+    # Check that the existing uniqueName field is unique 
+    if catHasUniqueName:
+        nameLst = catRec["uniqueName"].tolist()
+        dupLst = [k for k,v in Counter(nameLst).items() if v>1]
+        if dupLst:
+            log_wr(LF, "Input source names are not unique!")
+            log_fail(LF, "> Duplicate names: %s" % dupLst)
+
+    # Populate the unique-name field if not defined in the input catalogue
+    if not catHasUniqueName:
+        log_wr(LF, "Assigning a unique name to each entry (position based).")
+        for i in range(len(catRec)):
+            catRec[i]["uniqueName"] = \
+                deg2dms(catRec[i]["x_deg"]/15.0, delim="", nPlaces=1) + \
+                deg2dms(catRec[i]["y_deg"], delim="", doSign=True, nPlaces=2)
 
     # Read the SQL schema for the internal database
     schemaFile = "Imports/templates/DBSchema.sql"
     log_wr(LF, "Parsing the database schema from '%s'" % schemaFile)
-    tableDefDict, tableSQLdict = schema_to_tabledef(schemaFile)
+    tableDtypeDict, tableSQLdict = schema_to_tabledef(schemaFile)
     
     # Create a new persistent database using the table schema
     dbFile = sessionPath + "/session.sqlite"
@@ -264,7 +299,7 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         
     # Point to the input file for the current session and write to disk
     pipeInFile = sessionPath + "/inputs.config"
-    log_wr(LF, "Writing pipeline driving file to '%s'" % pipeInFile)
+    log_wr(LF, "Creating pipeline input file at '%s'" % pipeInFile)
     pipeInpObj.configFile = pipeInFile
     pipeInpObj.write_file()
     log_wr(LF, "> Edit this file to make changes to input parameters.")
@@ -281,6 +316,9 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     log_wr(LF, "> '%s' -> '%s'" % (inTypeFile, sessionPath + "/dataType.txt"))
     shutil.copyfile(inTypeFile, sessionPath + "/dataType.txt")
 
+    # Update the status file to reflect successful session creation
+    statusDict["session"] = 1
+    write_dictfile(statusDict, sessionPath + "/status.json")
 
 #-----------------------------------------------------------------------------#
 if __name__=="__main__":

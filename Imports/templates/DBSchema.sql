@@ -57,7 +57,8 @@ dPolAngleFit_deg double,
 polAngle0Fit_deg double,
 dPolAngle0Fit_deg double,
 thresholdSignalPI double,
-detectionF int(2)
+detectionF int(2),
+status int(2)
 );
 
 CREATE TABLE cleanFDFparms (
@@ -92,5 +93,6 @@ thresholdSignalPI double,
 detectionF int(2),
 nIterDone int(100),
 cleanCutoff_sigma double,
-cleanCutoff_Jybm double
+cleanCutoff_Jybm double,
+status int(2)
 );

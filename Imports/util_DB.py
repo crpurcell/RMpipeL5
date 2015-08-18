@@ -14,7 +14,9 @@
 #  insert_arr_db            ... insert recarray entries into the database     #
 #  update_arr_db            ... update DB entries using a recarray            #
 #  select_into_arr          ... run a SQL query and return a numpy recarray   #
+#  trtype                   ... translate SQL types to numpy dtypes           #
 #  schema_to_tabledef       ... parse the SQL table definitions               #
+#  sql_create_to_numpy_dtype .. create statement to recarray dtype
 #  get_tables_description   ... get the description of all tables in a DB     #
 #                                                                             #
 #=============================================================================#
@@ -138,6 +140,36 @@ def select_into_arr(cursor, sql, args=[]):
 
 
 #-----------------------------------------------------------------------------#
+def trtype(dtype):
+    """
+    Translation function for data types: SQL to recarray
+    RecArray dtypes:
+      bytes                = b<n>, e.g. b1
+      ints                 = i<n>, e.g. i2, i4, i8,
+      unsigned ints        = u<n>, e.g. u1, u2, u4, u8
+      floats               = f<n>, e.g. f2, f4, f8
+      complex              = c<n>, e.g. c8, c16
+      fixed length strings = a<n>, e.g. a10, a100
+    where <n> is the number of bytes / chars, so float32=f4, float64=f8
+    """
+
+    floatRe = re.compile('^float')
+    doubleRe = re.compile('^double')
+    intRe = re.compile('^int')
+    charRe = re.compile('^varchar\((\d+)\)')
+    if floatRe.match(dtype):
+        return 'f4'
+    if doubleRe.match(dtype):
+        return 'f8'
+    if intRe.match(dtype):
+        return 'i8'
+    mch = charRe.match(dtype)
+    if mch:
+         return 'a' + mch.group(1)
+    return 'f8'    # default to float64
+
+        
+#-----------------------------------------------------------------------------#
 def schema_to_tabledef(schemaFile, addColDict={}):
     """
     Parse the SQL file containing the CREATE TABLE definitions and convert to
@@ -152,43 +184,12 @@ def schema_to_tabledef(schemaFile, addColDict={}):
     """
 
     # Return these
-    tableNameLst = []
-    tableDefDict = {}
+    tableDtypeDict = {}
     tableSQLdict = {}
     
     # Compile a few useful regular expressions
-    spaces = re.compile('\s+')
-    commaAndSpaces = re.compile(',\s+')
     comment = re.compile('#.*')
-    quotes = re.compile('\'[^\']*\'')
-    brackets = re.compile('[\[|\]\(|\)|\{|\}]')
-    createRe =  re.compile('^(CREATE TABLE|create table) (\w+)\s*\((.+)\)\s*$')
     
-    # Translation function for data types: SQL to recarray
-    # RecArray dtypes:
-    #   bytes                = b<n>, e.g. b1
-    #   ints                 = i<n>, e.g. i2, i4, i8,
-    #   unsigned ints        = u<n>, e.g. u1, u2, u4, u8
-    #   floats               = f<n>, e.g. f2, f4, f8
-    #   complex              = c<n>, e.g. c8, c16
-    #   fixed length strings = a<n>, e.g. a10, a100
-    # where <n> is the number of bytes / chars, so float32=f4, float64=f8
-    def trtype(dtype):
-        floatRe = re.compile('^float')
-        doubleRe = re.compile('^double')
-        intRe = re.compile('^int')
-        charRe = re.compile('^varchar\((\d+)\)')
-        if floatRe.match(dtype):
-            return 'f4'
-        if doubleRe.match(dtype):
-            return 'f8'
-        if intRe.match(dtype):
-            return 'i8'
-        mch = charRe.match(dtype)
-        if mch:
-             return 'a' + mch.group(1)
-        return 'f8'    # default to float64
-        
     # Loop through the SQL statements
     fileStr=''
     FH = open(schemaFile)
@@ -199,39 +200,87 @@ def schema_to_tabledef(schemaFile, addColDict={}):
             fileStr += line
     sqlLst = fileStr.split(';')
     FH.close()
+
     for sql in sqlLst:
+        dtypeDict, sqlDict = sql_create_to_numpy_dtype(sql, addColDict)
+        tableDtypeDict.update(dtypeDict)
+        tableSQLdict.update(sqlDict)
 
-        # Simplify the SQL statement
-        sql = sql.replace('\r', ' ')        # kill carriage-return
-        sql = sql.replace('\n', ' ')        # kill newlines
-        sql = sql.strip()                   # kill external whitespace
-        sql = spaces.sub(' ', sql)          # shrink internal whitespaces
-        sql = commaAndSpaces.sub(',', sql)  # kill ambiguous spaces
+    return tableDtypeDict, tableSQLdict
 
-        mch = createRe.match(sql)
-        if mch:            
-            tableName = mch.group(2).strip()
-            colDefStr = mch.group(3).strip()
+
+#-----------------------------------------------------------------------------#
+def sql_create_to_numpy_dtype(sql, addColDict={}):
+
+    # Compile a few useful regular expressions
+    spaces = re.compile('\s+')
+    commaAndSpaces = re.compile(',\s+')
+    spacesAndComma = re.compile('\s+,')
+    createRe =  re.compile('^(CREATE TABLE|create table) (\w+)\s*\((.+)\)\s*$')
+    
+    # Simplify the SQL statement
+    sql = sql.replace('\r', ' ')        # kill carriage-return
+    sql = sql.replace('\n', ' ')        # kill newlines
+    sql = sql.strip()                   # kill external whitespace
+    sql = spaces.sub(' ', sql)          # shrink internal whitespaces
+    sql = commaAndSpaces.sub(',', sql)  # kill ambiguous spaces
+    sql = spacesAndComma.sub(',', sql)  # kill ambiguous spaces
+
+    tableSQLdict = {}
+    tableDtypeDict = {}
+    mch = createRe.match(sql)
+    if mch is not None:
+        tableName = mch.group(2).strip()
+        colDefStr = mch.group(3).strip()
             
-            # Add in columns if required
-            if tableName in addColDict:
-                colDefStr += ",%s" % addColDict[tableName]
-            tableSQLdict[tableName] = "CREATE TABLE %s (%s)" % \
-                                      (tableName, colDefStr)
-            tableNameLst.append(tableName)
-            colDefLst = colDefStr.strip().split(',')
-            colDefLst = [x.split(' ')[:2] for x in colDefLst]
+        # Add in columns if required
+        if tableName in addColDict:
+            colDefStr += ",%s" % addColDict[tableName]
+        tableSQLdict[tableName] = "CREATE TABLE %s (%s)" % \
+            (tableName, colDefStr)
+        colDefLst = colDefStr.strip().split(',')
+        colDefLst = [x.split(' ')[:2] for x in colDefLst]
 
-            # Translate the data types into a python recarray dtype list
-            for i in range(len(colDefLst)):
-                colDefLst[i][1] = trtype(colDefLst[i][1])
-                colDefLst[i] = tuple(colDefLst[i])
+        # Translate the data types into a python recarray dtype list
+        for i in range(len(colDefLst)):
+            
+            colDefLst[i][1] = trtype(colDefLst[i][1])
+            colDefLst[i] = tuple(colDefLst[i])
+        tableDtypeDict[tableName] = colDefLst
+            
+    return tableDtypeDict, tableSQLdict
 
-            # Add to the table definition dictionary
-            tableDefDict[tableName] = colDefLst
 
-    return tableDefDict, tableSQLdict
+#-----------------------------------------------------------------------------#
+def mk_primary_key(sqlCreateStr, colName):
+    """Add a PRIMARY KEY statement to a column of a SQL create statement"""
 
+    # Regular expressions to pick apart the create statement
+    createRe =  re.compile('^(CREATE TABLE|create table) (\w+)\s*\((.+)\)\s*$')
+    prikeyRe = re.compile(".*(PRIMARY KEY|primary key)$")
+
+    sqlCreateNewStr = ""
+    mch = createRe.match(sqlCreateStr)
+    if not mch:
+        return sqlCreateStr
+    else:
+        createStr = mch.group(1).strip()
+        tableName = mch.group(2).strip()
+        colsDefStr = mch.group(3).strip()
+        colDefLst = []
+        for colDefStr in colsDefStr.split(','):
+            name, dataType = colDefStr.split(" ", 1)
+            if name==colName:
+                mch = prikeyRe.match(dataType)
+                if not mch:
+                    dataType += " PRIMARY KEY"
+            colDefLst.append("%s %s" % (name, dataType))
+
+        sqlCreateNewStr += createStr + " " + tableName + " ("
+        sqlCreateNewStr += ",".join(colDefLst)
+        sqlCreateNewStr += ")"
+
+        return sqlCreateNewStr
 
 #-----------------------------------------------------------------------------#
 def get_tables_description(cursor):

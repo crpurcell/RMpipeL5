@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Functions and classes for TK graphical elements.                  #
 #                                                                             #
-# MODIFIED: 29-May-2015 by C. Purcell                                         #
+# MODIFIED: 09-Jun-2015 by C. Purcell                                         #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -112,6 +112,7 @@ class ScrolledTreeTab(tk.Frame):
     def clear_entries(self):
         """Clear all the entries from the table."""
         try:
+            self.rowSelected = None
             x = self.tree.get_children() 
             for entry in x:
                 self.tree.delete(entry)

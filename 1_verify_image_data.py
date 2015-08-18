@@ -10,7 +10,7 @@
 #           simple sanity checks and write vectors of frequency, channel and  #
 #           file to disk.                                                     #
 #                                                                             #
-# MODIFIED: 20-May-2015 by C. Purcell                                         #
+# MODIFIED: 17-July-2015 by C. Purcell                                        #
 #                                                                             #
 #=============================================================================#
 
@@ -48,6 +48,11 @@ def main():
     parameter should have a unique naming format, matched by the wildcard
     patterns. Default patterns are set at the top of the script and may be
     overridden using command line arguments.
+
+    Note: The pipeline assumes each FITS file covers the same area of sky and
+    that ALL sources are contained within that area (i.e., a survey field). The
+    pipeline is not currently set up to understand pointed observations, where
+    each source has been observed separately.
 
     Example:
     

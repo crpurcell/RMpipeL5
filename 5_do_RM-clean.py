@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-clean on the Faraday dispersion Functions in a         #
 #           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 20-May-2015 by C. Purcell                                         #
+# MODIFIED: 18-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
@@ -19,15 +19,16 @@ import argparse
 import math as m
 import numpy as np
 import sqlite3
-from scipy.stats.stats import nanmedian
 
+from Imports.util_PPC import nanmedian
 from Imports.util_PPC import PipelineInputs
 from Imports.util_PPC import fail_not_exists
 from Imports.util_PPC import fail_not_exists
 from Imports.util_PPC import log_wr
 from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
-from Imports.util_PPC import set_statusfile
+from Imports.util_PPC import read_dictfile
+from Imports.util_PPC import write_dictfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import select_into_arr
@@ -97,15 +98,24 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     sessionRootDir = "." if sessionRootDir=="" else sessionRootDir
     fail_not_exists(sessionPath, "directory")
     
-    # Set the session status file to "1"
-    # TODO: set this in the database
-    statusFile = sessionPath + "/status.txt"
-    set_statusfile(statusFile, 1)
-    
     # Open the existing logfile to append to
     logFile = sessionPath + "/pipeline.log"
     LF = open(logFile, "a", 0)
     log_wr(LF, ">>> Beginning RM-clean.")
+
+    # Check that preceeding staps have been done
+    statusFile = sessionPath + "/status.json"
+    fail_not_exists(statusFile, "file", LF)
+    statusDict = read_dictfile(statusFile)
+    if int(statusDict["session"])<1:
+        log_fail(LF, "Err: Session status file reports session was not " + \
+                     "created successfully.")
+    if int(statusDict["extract"])<1:
+        log_fail(LF, "Err: Session status file reports spectral extraction " + \
+                     "was not done.")
+    if int(statusDict["rmsynth"])<1:
+        log_fail(LF, "Err: Session status file reports RM-synthesis " + \
+                     "was not done.")
 
     # Read and parse the pipeline input file
     inParmFile = sessionPath + "/inputs.config"
@@ -198,7 +208,7 @@ def run_RM_clean(sessionPath, doOverwrite=False):
                              specPath,
                              lamSqArr_m2,
                              float(pDict["thresholdSignalPI_sigma"]),
-                             fileSuffix="_cleanFDF.dat",
+                             dirty=False,
                              LF=LF)
 
     # Update the table with the FDF measurements
@@ -210,6 +220,9 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     cursor.close()
     conn.close()
     
+    # Update the status file to reflect successful extraction
+    statusDict["rmclean"] = 1
+    write_dictfile(statusDict, sessionPath + "/status.json")
 
 #-----------------------------------------------------------------------------#
 if __name__=="__main__":

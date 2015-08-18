@@ -8,7 +8,7 @@
 # PURPOSE:  Create a small FITS dataset for the purposes of testing the       #
 #           RM-pipeline. Edit the values at the top of the script and run.    #
 #                                                                             #
-# MODIFIED: 25-May-2015 by C. Purcell                                         #
+# MODIFIED: 23-July-2015 by C. Purcell                                        #
 #                                                                             #
 #=============================================================================#
 
@@ -20,11 +20,13 @@ startFreq_Hz =  1.0e9
 endFreq_Hz = 3.0e9
 nChans = 30
 rmsNoise_mJy = 0.1
-beamFWHM_deg = 1.5/3600.0
+beamMinFWHM_deg = 1.5/3600.0
+beamMajFWHM_deg = 2.5/3600.0
+beamPA_deg = 20.0
 pixScale_deg = 0.3/3600.0
 xCent_deg = 90.0
 yCent_deg = 0.0
-nPixRA = 100
+nPixRA = 120
 nPixDec = 100
 
 # Coordinate system ["EQU" or "GAL"]
@@ -42,6 +44,8 @@ srcInLst = [ [5.0, -0.7, 0.2, 30.0, 19.0, 89.9981, +0.0001],
              [7.0, -0.2, 0.5, 45.0, -32.0, 89.9970, -0.0027],
              [2.3, +0.5, 0.7, 120.0, -90.0, 90.0026, +0.000],
              [0.3, +0.0, 0.1, 120.0, -90.0, 90.0, +0.000]]
+#-------------------------------------------------------------#
+freq0_Hz = startFreq_Hz  # Frequency at which the flux is specified
 
 # END USER EDITS -------------------------------------------------------------#
 
@@ -79,17 +83,17 @@ def main():
       [ [fluxI_mJy, SI, fracPol, psi0_deg, RM_radm2, x_deg, y_deg], ... ]
     
       fluxI_mJy ... flux of source in first channel (mJy)
-      SI        ... frequnecy spectral index
+      SI        ... frequency spectral index
       fracPol   ... fractional polarisation (constant across frequency range)
       psi0_deg  ... intrinsic polarisation angle )
       RM_radm2  ... rotation measure (rad/m^2)
       x_deg     ... X-position coordinate (deg)
       y_deg     ... Y-position coordinate (deg)
 
-    The beam is circular and is set to a constant angular size as a function
-    of frequnecy (i.e., assumes all data has been convolved to the same
-    resolution). Please edit the variables at the top of the script to change
-    the properties of the output data.
+    The beam may be elliptical and is set to a constant angular size as a
+    function of frequency (i.e., assumes all data has been convolved to the
+    same resolution). Please edit the variables at the top of the script to
+    change the properties of the output data.
 
     In addition to the FITS files, the script outputs a simple ASCII catalogue
     and a SQL description of that catalogue. The catalogue file is used to
@@ -113,15 +117,16 @@ def main():
 
     # Call the function to create FITS data
     create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
-                         rmsNoise_mJy, beamFWHM_deg, pixScale_deg, xCent_deg,
-                         yCent_deg, nPixRA, nPixDec, coordSys)
+                         rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
+                         beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
+                         nPixRA, nPixDec, coordSys)
 
     # Print summary to user
     catFile = dataPath.rstrip("/") + "/testCat.dat"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
     print "-" * 80
-    print ">>> Running the RM pipeline"
+    print ">>> How to run the RM pipeline:"
     print "-" * 80
     print "A test dataset had been created in the directory '%s/':" \
           % dataPath.rstrip("/")
@@ -140,12 +145,18 @@ def main():
     print "./3_extract_spectra.py %s/"  % sessionPath.rstrip("/")
     print "./4_do_RM-synthesis.py %s/" % sessionPath.rstrip("/")
     print "./5_do_RM-clean.py %s/" % sessionPath.rstrip("/")
+    print
+    print "NOTE: information and help on each script can be viewed by ",
+    print "executing each\ncommand followed by a '-h' flag, e.g.: \n"
+    print "./0_mk_test_image_data.py -h"
+    print 
 
 
 #-----------------------------------------------------------------------------#
 def create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
-                         rmsNoise_mJy, beamFWHM_deg, pixScale_deg, xCent_deg,
-                         yCent_deg, nPixRA, nPixDec, coordSys="EQU"):
+                         rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
+                         beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
+                         nPixRA, nPixDec, coordSys="EQU"):
 
     """
     Create a set of FITS images corresponding to a Stokes I Q & U data-cube.
@@ -175,7 +186,7 @@ def create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
     FH = open(sqlFile, "w")
     descStr = """
 CREATE TABLE sourceCat (
-srcName varchar(20),
+uniqueName varchar(20),
 x_deg double,
 y_deg double);
     """
@@ -190,7 +201,9 @@ y_deg double);
                                     dFreq_Hz=dFreqArr_Hz[0],
                                     xCent_deg=xCent_deg,
                                     yCent_deg=yCent_deg,
-                                    beamFWHM_deg=beamFWHM_deg,
+                                    beamMinFWHM_deg=beamMinFWHM_deg,
+                                    beamMajFWHM_deg=beamMajFWHM_deg,
+                                    beamPA_deg=beamPA_deg,
                                     pixScale_deg=pixScale_deg,
                                     stokes="I",
                                     system=coordSys)
@@ -200,8 +213,11 @@ y_deg double);
 
     # Calculate some beam parameters
     gfactor = 2.0*m.sqrt(2.0*m.log(2.0))
-    beamSigma_deg = beamFWHM_deg/gfactor
-    beamSigma_pix = beamSigma_deg/pixScale_deg
+    beamMinSigma_deg = beamMinFWHM_deg/gfactor
+    beamMajSigma_deg = beamMajFWHM_deg/gfactor
+    beamMinSigma_pix = beamMinSigma_deg/pixScale_deg
+    beamMajSigma_pix = beamMajSigma_deg/pixScale_deg
+    beamPA_rad = m.radians(beamPA_deg)
     
     # Loop through the sources, calculate the spectra and pixel position
     spectraILst = []
@@ -215,7 +231,8 @@ y_deg double);
                                             row[1],      # SI
                                             row[2],      # fracPol
                                             row[3],      # psi0_deg
-                                            row[4])      # RM_radm2
+                                            row[4],      # RM_radm2
+                                            freq0_Hz)
         spectraILst.append(IArr_mJy)
         spectraQLst.append(QArr_mJy)
         spectraULst.append(UArr_mJy)
@@ -228,9 +245,9 @@ y_deg double);
             params = [spectraILst[iSrc][iChan],  # amplitude
                       coordLst_pix[iSrc][0],     # X centre (pix)
                       coordLst_pix[iSrc][1],     # Y centre
-                      beamSigma_pix,             # width (sigma)
-                      beamSigma_pix,             # height (sigma)
-                      0.0]                       # PA (rad) W of N (clockwise)
+                      beamMinSigma_pix,          # width (sigma)
+                      beamMajSigma_pix,          # height (sigma)
+                      beamPA_rad]                # PA (rad) W of N (clockwise)
             planeI = twodgaussian(params, shape2D).reshape(hduTmp.data.shape)
             params[0] = spectraQLst[iSrc][iChan]
             planeQ = twodgaussian(params, shape2D).reshape(hduTmp.data.shape)

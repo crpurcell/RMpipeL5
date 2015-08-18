@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 28-May-2015 by C. Purcell                                         #
+# MODIFIED: 18-August-2015 by C. Purcell                                      #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -18,6 +18,8 @@
 #  fail_not_exists      ... check for dir/file existence, exit if missing     #
 #  set_statusfile       ... set text in an ASCII status file                  #
 #  read_statusfile      ... read text in an ASCII status file                 #
+#  read_dictfile        ... save a dictionary to a text file                  #
+#  write_dictfile       ... write a dictionary to a text file                 #
 #  load_vector_fail     ... load a single-column vector from a text file      #
 #  cat_to_recarray      ... convert ASCII catalogue file to a record array    #
 #  extract_spec_noise   ... extract source and noise spectra from FITS file(s)#
@@ -31,6 +33,7 @@
 #  calc_stats           ... calculate the statistics of an array              #
 #  sort_nicely          ... sort a list in the order a human would            #
 #  twodgaussian         ... return an array containing a 2D Gaussian          #
+#  create_pqu_spectra_RMthin ... return fractional spectra for a thin source  #
 #  create_IQU_spectra_RMthin ... return IQU spectra for a thin source         #
 #                                                                             #
 #=============================================================================#
@@ -45,6 +48,10 @@ import numpy as np
 import numpy.ma as ma
 import ConfigParser
 import sqlite3
+import csv
+import json
+
+import astropy.io.fits as pf
 
 from util_DB import select_into_arr
 from util_DB import get_tables_description
@@ -55,13 +62,12 @@ C = 2.997924538e8 # Speed of light [m/s]
 #-----------------------------------------------------------------------------#
 class PipelineInputs:
     """
-    Class to hold the driving inputs and defaults for the POSSUM pipeline.
+    Class to hold the inputs and defaults for the POSSUM pipeline.
     Methods assume unique keys across all configuration sections. There are
     two levels of parameters: 1) input parameters linked to a file and stored
     in a ConfigParser object, 2) derived parameters stored in a dictionary.
     Derived parameters pertain to the frequency and Faraday depth sampling and
-    are set to sensible
-
+    are set to sensible defaults tuned to the data.
     """
 
     def __init__(self, configFile="", calcParms=False, resetPhiSamp=False):
@@ -82,7 +88,7 @@ class PipelineInputs:
         
     def _setup_defaults(self):
         """
-        Hard-coded defaults for the RM pipeline.
+        Hard-coded initial defaults for the RM pipeline.
         """
         self.config.add_section("Dataset")
         self.config.set("Dataset", "dataPath", ".")
@@ -248,7 +254,7 @@ class PipelineInputs:
 
 #-----------------------------------------------------------------------------#
 class DataManager:
-    """Class to interface with the database and datasets."""
+    """Class to interface with the database, datasets and results."""
 
     def __init__(self, sessionPath):
         self.sessionPath = sessionPath
@@ -281,8 +287,6 @@ class DataManager:
         sql = """
         SELECT
         sourceCat.uniqueName,
-        sourceCat.x_deg,
-        sourceCat.y_deg,
         spectraParms.fluxMedI_Jybm as fluxI_mJy,
         dirtyFDFparms.ampPeakPIfit_Jybm as peakPI_mJybm,
         dirtyFDFparms.phiPeakPIfit_rm2 as RM_radm2,
@@ -304,21 +308,25 @@ class DataManager:
 
     def get_specI_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        specIdat = specDir +  '/' + uniqueName +  '_specI.dat'
-        freqArr_Hz, IArr_Jy = np.loadtxt(specIdat, delimiter=" ", unpack=True)
-        rmsSpecIDat = specDir +  '/' + uniqueName +  '_rmsSpecI.dat'
-        dummy, rmsIArr_Jy = np.loadtxt(rmsSpecIDat, delimiter=" ", unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_specI.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)
+        freqArr_Hz = HDULst[2].data["freq"]
+        IArr_Jy = HDULst[2].data["src"]
+        rmsIArr_Jy = HDULst[2].data["rms"]
+        HDULst.close()
         return freqArr_Hz, IArr_Jy, rmsIArr_Jy
-        
+    
     def get_specI_byindx(self, indx):
         uniqueName = self.indx2name(indx)
         return self.get_specI_byname(uniqueName)
 
     def get_modI_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        specImodelDat = specDir +  '/' + uniqueName +  '_specImodel.dat'
-        freqArr_Hz, modIArr_Jy = np.loadtxt(specImodelDat, delimiter=" ",
-                                            unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_specI.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)
+        freqArr_Hz = HDULst[2].data["freq"]
+        modIArr_Jy = HDULst[2].data["model"]
+        HDULst.close()
         return freqArr_Hz, modIArr_Jy
     
     def get_modI_byindx(self, indx):
@@ -327,10 +335,12 @@ class DataManager:
     
     def get_specQ_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        specQdat = specDir +  '/' + uniqueName +  '_specQ.dat'
-        freqArr_Hz, QArr_Jy = np.loadtxt(specQdat, delimiter=" ", unpack=True)
-        rmsSpecQDat = specDir +  '/' + uniqueName +  '_rmsSpecQ.dat'
-        dummy, rmsQArr_Jy = np.loadtxt(rmsSpecQDat, delimiter=" ", unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_specQ.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)
+        freqArr_Hz = HDULst[2].data["freq"]
+        QArr_Jy = HDULst[2].data["src"]
+        rmsQArr_Jy = HDULst[2].data["rms"]
+        HDULst.close()
         return freqArr_Hz, QArr_Jy, rmsQArr_Jy
         
     def get_specQ_byindx(self, indx):
@@ -339,21 +349,26 @@ class DataManager:
 
     def get_specU_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        specUdat = specDir +  '/' + uniqueName +  '_specU.dat'
-        freqArr_Hz, UArr_Jy = np.loadtxt(specUdat, delimiter=" ", unpack=True)
-        rmsSpecUDat = specDir +  '/' + uniqueName +  '_rmsSpecU.dat'
-        dummy, rmsUArr_Jy = np.loadtxt(rmsSpecUDat, delimiter=" ", unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_specU.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)
+        freqArr_Hz = HDULst[2].data["freq"]
+        UArr_Jy = HDULst[2].data["src"]
+        rmsUArr_Jy = HDULst[2].data["rms"]
+        HDULst.close()
         return freqArr_Hz, UArr_Jy, rmsUArr_Jy
         
     def get_specU_byindx(self, indx):
         uniqueName = self.indx2name(indx)
         return self.get_specU_byname(uniqueName)
-
+    
     def get_RMSF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        RMSFdat =  specDir +  '/' + uniqueName +  '_RMSF.dat'
-        phiArr, RMSFreal, RMSFimag = np.loadtxt(RMSFdat, delimiter=' ',
-                                                unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)        
+        phiArr = HDULst[2].data["phiSamp"]
+        RMSFreal = HDULst[2].data["RMSFreal"]
+        RMSFimag = HDULst[2].data["RMSFimag"]
+        HDULst.close()
         RMSFArr =  (RMSFreal + 1j * RMSFimag)
         return phiArr, RMSFArr
         
@@ -363,9 +378,12 @@ class DataManager:
 
     def get_dirtyFDF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        FDFdat = specDir +  '/' + uniqueName +  '_dirtyFDF.dat'
-        phiArr, FDFreal_Jy, FDFimag_Jy = np.loadtxt(FDFdat, delimiter=' ',
-                                                unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)        
+        phiArr = HDULst[3].data["phi"]
+        FDFreal_Jy = HDULst[3].data["FDFreal"]
+        FDFimag_Jy = HDULst[3].data["FDFimag"]
+        HDULst.close()
         FDFArr_Jy =  (FDFreal_Jy + 1j * FDFimag_Jy)
         return phiArr, FDFArr_Jy
 
@@ -375,25 +393,67 @@ class DataManager:
 
     def get_cleanFDF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        FDFdat = specDir +  '/' + uniqueName +  '_cleanFDF.dat'
-        phiArr, FDFreal_Jy, FDFimag_Jy = np.loadtxt(FDFdat, delimiter=' ',
-                                                unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)        
+        phiArr = HDULst[3].data["phi"]
+        FDFreal_Jy = HDULst[4].data["FDFreal"]
+        FDFimag_Jy = HDULst[4].data["FDFimag"]
+        HDULst.close()
         FDFArr_Jy =  (FDFreal_Jy + 1j * FDFimag_Jy)
         return phiArr, FDFArr_Jy
-
+    
     def get_cleanFDF_byindx(self, indx):
         uniqueName = self.indx2name(indx)
         return self.get_cleanFDF_byname(uniqueName)
     
     def get_ccFDF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
-        ccFDFdat = specDir +  '/' + uniqueName +  '_cleanFDFPImodel.dat'
-        phiArr, ccFDF_Jy = np.loadtxt(ccFDFdat, delimiter=' ', unpack=True)
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)        
+        phiArr = HDULst[3].data["phi"]
+        ccFDF_Jy = HDULst[4].data["CC"]        
         return phiArr, ccFDF_Jy
 
     def get_ccFDF_byindx(self, indx):
         uniqueName = self.indx2name(indx)
         return self.get_ccFDF_byname(uniqueName)
+
+    def get_thin_qumodel_byname(self, uniqueName, oversample=False):
+        pass
+        # Determine the frequency sampling
+#        freqArr_Hz, IArr_Jy, rmsIArr_Jy = get_specI_byname(uniqueName)
+#        if oversample:
+#            freqArr_Hz = np.linspace(freqArr_Hz[0], freqArr_Hz[-1], 10000)
+        
+        # Get the parameters of the peak    
+#        conn = sqlite3.connect(self.dbFile)
+#        cursor = conn.cursor()
+#        sql = """
+#        SELECT
+#        spectraParms.coeffPolyIspec,
+#        """
+#        resultArr = self.query_database(sql, buffer=False)
+
+#        cursor.close()
+#        conn.close()
+
+#        create_IQU_spectra_RMthin(freqArr_Hz, fluxI_mJy, SI, fracPol, psi0_deg, 
+#                              RM_radm2):
+            
+#        return 
+
+
+    def get_stampI_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_stampI_byname(uniqueName)
+    
+    def get_stampI_byname(self, uniqueName):
+
+        dataDir = self.sessionPath + '/OUT'
+        stampIfits = dataDir +  '/' + uniqueName +  "_stampI.fits"
+        head = pf.getheader(stampIfits)
+        data = pf.getdata(stampIfits)
+        return data, head
 
     def get_database_schema(self):
         conn = sqlite3.connect(self.dbFile)
@@ -403,16 +463,32 @@ class DataManager:
         conn.close()
         return descDict
 
-    def query_database(self, sql):
+    def query_database(self, sql, buffer=True):
         conn = sqlite3.connect(self.dbFile)
         cursor = conn.cursor()
-        self.tempRec = select_into_arr(cursor, sql)
+        resultArr = None
+        resultArr = select_into_arr(cursor, sql)
+        if buffer:
+            self.tempRec = resultArr
         cursor.close()
         conn.close()
+        return resultArr
     
-    def close():
+    def close(self):
         cursor.close()
         conn.close()
+
+    def export_table(self, tableName, format="CSV", outDir="."):
+        sql = "SELECT * FROM %s" % tableName
+        resultArr = self.query_database(sql, buffer=False)
+        outFileName = outDir + "/" +tableName + ".csv"
+        with open(outFileName, "wb") as FH:
+            writer = csv.writer(FH)
+            colNames = resultArr.dtype.names
+            writer.writerow(colNames)
+            writer.writerows(resultArr)
+        FH.close()
+        print "Table '%s' written to file:\n'%s'" % (tableName, outFileName)
 
 
 #-----------------------------------------------------------------------------#
@@ -548,6 +624,19 @@ def read_statusfile(statusFile):
 
 
 #-----------------------------------------------------------------------------#
+def read_dictfile(dictFile):
+
+    return json.load(open(dictFile, "r"))
+
+
+#-----------------------------------------------------------------------------#
+def write_dictfile(data, dictFile):
+    
+    json.dump(data, open(dictFile, "w"))
+
+
+
+#-----------------------------------------------------------------------------#
 def load_vector_fail(inFile, dtype='float32', tolist=False, LF=None):
     """
     Use the numpy loadtxt function to read a vector from a single-column
@@ -571,7 +660,8 @@ def load_vector_fail(inFile, dtype='float32', tolist=False, LF=None):
 
 
 #-----------------------------------------------------------------------------#
-def cat_to_recarray(inCatFile, dtype, delim=" ", doWarn=True, LF=None):
+def cat_to_recarray(inCatFile, dtype, delim=" ", addUniqueName=False, 
+                    doWarn=True, LF=None):
     """
     Read and parse the catalogue file. The 'dtype' argument should be a list
     of tuples, one tuple per column. Each tuple should have two entries: the
@@ -619,7 +709,8 @@ def cat_to_recarray(inCatFile, dtype, delim=" ", doWarn=True, LF=None):
         line = line.split(delim)
         
         # Add the uniqueName column
-        line.insert(indxUname, '')
+        if addUniqueName:
+            line.insert(indxUname, '')
         
         nCols = len(line)
         if len(line)!=len(colNameLst):
@@ -630,9 +721,8 @@ def cat_to_recarray(inCatFile, dtype, delim=" ", doWarn=True, LF=None):
             continue
         else:
             catLst.append(line)
-
     DATFILE.close()
-
+    
     # Convert the 2D list to a ndarray and then to a record array
     if len(catLst)==0:
         log_fail(LF, 'Err: Zero valid entries in the catalogue file!')
@@ -826,24 +916,36 @@ def twodgaussian(params, shape):
 
 
 #-----------------------------------------------------------------------------#
-def create_IQU_spectra_RMthin(freqArr_Hz, fluxI_mJy, SI, fracPol, psi0_deg, 
-                              RM_radm2):
-    """Return Stokes I, Q & U spectra for a Faraday thin source"""
+def create_pqu_spectra_RMthin(freqArr_Hz, fracPol, psi0_deg, RM_radm2):
+    """Return fractional P/I, Q/I & U/I spectra for a Faraday thin source"""
     
+    # Calculate the p, q and u Spectra
+    pArr = fracPol * np.ones_like(freqArr_Hz)
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
-    startFreq_Hz = freqArr_Hz[0]
-    endFreq_Hz = freqArr_Hz[-1]
+    pArr = fracPol * np.ones_like(lamSqArr_m2)
+    quArr = pArr * np.exp( 2j * (np.radians(psi0_deg) +
+                                 RM_radm2 * lamSqArr_m2 ) )
+    qArr = quArr.real
+    uArr = quArr.imag
     
-    # Calculate Stokes I and P spectra
-    freqMid_Hz = (endFreq_Hz - startFreq_Hz) / 2.0
-    IArr_mJy = fluxI_mJy * np.power(freqArr_Hz/freqMid_Hz, SI)
-    PArr_mJy = IArr_mJy * fracPol
-    
-    # Calculate the Stokes Q and U Spectra
-    QU_mJy = PArr_mJy * np.exp( 2j * (np.radians(psi0_deg) +
-                                      RM_radm2 * lamSqArr_m2 ) )
-    QArr_mJy = QU_mJy.real
-    UArr_mJy = QU_mJy.imag
-    
-    return IArr_mJy, QArr_mJy, UArr_mJy
+    return pArr, qArr, uArr
+
+
+#-----------------------------------------------------------------------------#
+def create_IQU_spectra_RMthin(freqArr_Hz, fluxI, SI, fracPol, psi0_deg, 
+                              RM_radm2, freq0_Hz=None):
+    """Return Stokes I, Q & U spectra for a Faraday thin source"""
+
+    pArr, qArr, uArr = create_pqu_spectra_RMthin(freqArr_Hz,
+                                                 fracPol,
+                                                 psi0_deg, 
+                                                 RM_radm2)
+    if freq0_Hz is None:
+        freq0_Hz = freqArr_Hz[0]
+    IArr = fluxI * np.power(freqArr_Hz/freq0_Hz, SI)
+    PArr = IArr * pArr
+    QArr = IArr * qArr
+    UArr = IArr * uArr
+
+    return IArr, QArr, UArr
 

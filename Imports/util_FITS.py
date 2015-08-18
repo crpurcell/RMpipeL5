@@ -381,7 +381,9 @@ def get_subfits(inFileName, x_deg, y_deg, radius_deg, zMin_w=None, zMax_w=None,
 #-----------------------------------------------------------------------------#
 def create_simple_fits_hdu(shape=(1, 1, 10, 10), freq_Hz=1.4e9, dFreq_Hz=1e6,
                            xCent_deg=90.0, yCent_deg=0.0,
-                           beamFWHM_deg=1.5/3600.0, pixScale_deg=0.3/3600.0,
+                           beamMinFWHM_deg=1.5/3600.0,
+                           beamMajFWHM_deg=1.5/3600.0,
+                           beamPA_deg=0.0, pixScale_deg=0.3/3600.0,
                            stokes='I', system="EQU"):
     """
     Create a blank HDU centred on a given coordinate and shape
@@ -424,9 +426,9 @@ def create_simple_fits_hdu(shape=(1, 1, 10, 10), freq_Hz=1.4e9, dFreq_Hz=1e6,
 
     head["BUNIT"] = "JY/BEAM "
     head["CELLSCAL"] = "CONSTANT"
-    head["BMAJ"] = beamFWHM_deg
-    head["BMIN"] = beamFWHM_deg
-    head["BPA"] = 0.0
+    head["BMIN"] = beamMinFWHM_deg
+    head["BMAJ"] = beamMajFWHM_deg
+    head["BPA"] = beamPA_deg
     head["BTYPE"] = "intensity"
     head["EPOCH"] = 2000.0
 

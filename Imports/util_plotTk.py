@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Plotting functions for the POSSUM pipeline Tk interface.          #
 #                                                                             #
-# MODIFIED: 27-May-2015 by C. Purcell                                         #
+# MODIFIED: 16-July-2015 by C. Purcell                                        #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -33,6 +33,7 @@
 # plotRMSF                                                                    #
 # plotDirtyFDF                                                                #
 # plotCleanFDF                                                                #
+# plotStampI                                                                  #
 #                                                                             #
 #=============================================================================#
 
@@ -44,6 +45,8 @@ import astropy.io.fits as pf
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
 from matplotlib.figure import Figure
+
+from util_plotFITS import plot_fits_map
 
 # Alter the default linewidths etc.
 mpl.rcParams['lines.linewidth'] = 1.0
@@ -897,6 +900,28 @@ def plotCleanFDF(dataMan, indx, io='fig'):
                      dirtyFDFArr_mJy = dirtyFDFArr_Jy*1e3,
                      gaussParm       = [],
                      title           = "Clean Faraday Dispersion Function")
+
+    # Write to the pipe
+    if io=='string':
+        sio = StringIO.StringIO()
+        setattr(sio, "name", "foo.jpg")
+        fig.savefig(sio, format='jpg' )    
+        return sio
+    else:
+        return fig
+    
+
+#-----------------------------------------------------------------------------#
+def plotStampI(dataMan, indx, io='fig'):
+
+    # Get the data & header of the saved postage stamp
+    data, head = dataMan.get_stampI_byindx(indx)
+    
+    # Setup the figure
+    fig = Figure()
+    fig.set_size_inches([8,8])
+
+    fig = plot_fits_map(data, head, fig=fig)
 
     # Write to the pipe
     if io=='string':

@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
 #           pipeline session.                                                 #
 #                                                                             #
-# MODIFIED: 20-May-2015 by C. Purcell                                         #
+# MODIFIED: 18-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
@@ -26,6 +26,8 @@ from Imports.util_PPC import fail_not_exists
 from Imports.util_PPC import log_wr
 from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
+from Imports.util_PPC import read_dictfile
+from Imports.util_PPC import write_dictfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import select_into_arr
@@ -99,6 +101,17 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     log_wr(LF, "\n>>> Beginning RM-synthesis.")
     log_wr(LF, "Time: %s" % time.ctime() )
 
+    # Check that preceeding staps have been done
+    statusFile = sessionPath + "/status.json"
+    fail_not_exists(statusFile, "file", LF)
+    statusDict = read_dictfile(statusFile)
+    if int(statusDict["session"])<1:
+        log_fail(LF, "Err: Session status file reports session was not " + \
+                     "created successfully.")
+    if int(statusDict["extract"])<1:
+        log_fail(LF, "Err: Session status file reports spectral extraction " + \
+                     "was not done.")
+
     # Read and parse the pipeline input file
     inParmFile = sessionPath + "/inputs.config"
     fail_not_exists(inParmFile, "file", LF)
@@ -138,7 +151,6 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
     
-    # Calculate the RM sampling from the input parameters
     # Connect to the database
     dbFile = sessionPath + "/session.sqlite"
     try:
@@ -148,9 +160,9 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     except Exception:
         log_fail(LF, "Err: Failed to connect to '%s'." % dbFile)
         
-    # Load the spectral parameters into memory    
+    # Load the spectral parameter table into memory
     sql = """
-    SELECT uniqueName, coeffPolyIspec, rmsMedQUAvg_Jybm
+    SELECT uniqueName, coeffPolyIspec, rmsMedQUAvg_Jybm, extractStatus
     FROM spectraParms
     """
     log_wr(LF, "Loading the spectral parameters from the database.")
@@ -168,13 +180,18 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
                              weightType=pDict["weightType"],
                              doOverwrite=doOverwrite,
                              LF=LF)
-    
+
     # Write the RMSF parameters to the database
     cursor.execute("DELETE FROM dirtyFDFparms")
     insert_arr_db(cursor, rmsfRec, "dirtyFDFparms")
     conn.commit()
     log_wr(LF, "Database updated with RMSF parameters.")
 
+    msg = "\n" + "-"*80 + "\n"
+    msg += "Proceeding to measure the properties of the FDFs."
+    msg = "\n" + "-"*80 + "\n"
+    log_wr(LF, msg)
+    
     # Load the spectral & RMSF parameters into memory
     sql = """
     SELECT spectraParms.uniqueName,
@@ -197,9 +214,9 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
                              specPath,
                              lamSqArr_m2,
                              float(pDict["thresholdSignalPI_sigma"]),
-                             fileSuffix="_dirtyFDF.dat",
+                             dirty=True,
                              LF=LF)
-
+    
     # Update the table with the FDF measurements
     update_arr_db(cursor, fdfRec, "dirtyFDFparms", "uniqueName")
     conn.commit()
@@ -208,6 +225,10 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     # Close the connection to the database
     cursor.close()
     conn.close()
+
+    # Update the status file to reflect successful extraction
+    statusDict["rmsynth"] = 1
+    write_dictfile(statusDict, sessionPath + "/status.json")
 
 
 #-----------------------------------------------------------------------------#
