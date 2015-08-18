@@ -25,11 +25,6 @@
 # TODO PPC:
 
 # Extractor
-* Re-write the spectral extraction module to save a sparse FITS file of
-  spectra containing valid emission. This can then be used with the
-  other PPC schemes.
-* Also allow the extraction module create a mini-cube on disk with
-  area equivalent to the noise box.
 * Set flag when source is near the edge of image or box contains NaNs.
 
 # Pipeline RM and measurements
@@ -49,14 +44,10 @@
 * Pipeline script to batch create publication plots and export results tables.
 
 # LONG TERM TODO:
-* Measure noise from an annulus instead of a box. Even using MADFM the
-Stokes I RMS is biased.
-* Implement other methods of source extraction in PPC vote.
-* Turn on -o flag in RM-synthesis script?
 * re-write feedback for RM-clean and implement useful logging.
 
 #-----------------------------------------------------------------------------#
 
 TODO PVACAT:
 
-* New scripts to run qu-fitting and model comparison
+* Integrate new scripts to run qu-fitting and model comparison
