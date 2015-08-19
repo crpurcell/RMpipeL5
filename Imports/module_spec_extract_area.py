@@ -7,12 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy, scipy and astropy modules.                    #
 #                                                                             #
-# MODIFIED: 14-August-2015 by C. Purcell                                      #
-#                                                                             #
-# TODO:                                                                       #
-#           * Catch errors with extraction, fitting and propagate into        #
-#             returned catalogue in a sensible way (flags?).                  #
-#           * Return chi-sq from the Stokes I model fit                       #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 import os
@@ -44,6 +39,15 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
                      freqArr_Hz=None, extractMode="box", sumBox_pix=3,
                      gaussAperture_sigma=2.3548, polyOrd=2, outDataDir='./OUT',
                      nBeams=50.0, saveCubeMode=1, doOverwrite=False, LF=None):
+    """
+    Run the procedure to extract data from each of the Stokes I, Q and U image
+    planes, stored in FITS files. For each catalogue entry and Stokes component
+    a FITS file is created containing a cutout cube (area=nBeams), an extraction
+    aperture mask and a spectra table with columns 'freq', 'rms', 'src' and
+    'model'. A polynomial of order <=5 is fit to the Stokes I spectrum and a
+    stored in the 'model' column. Measurements made on each source spectrum
+    are written to a record array and returned.
+    """
 
     # Default logging to STDOUT
     if LF is None:
@@ -133,6 +137,7 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
              ('bpa_deg', 'f8'),
              ('pixscale_deg', 'f8'),
              ('fNormSumbox', 'f8'),
+             ('fitIredChiSq', 'f8'),
              ('fitIstatus', 'i8'),
              ('extractStatus', 'i8')]
     specRec = np.zeros(len(catRec), dtype=dType)
@@ -167,11 +172,12 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
         # Frequency axis must be in GHz to avoid overflow errors
         # Arrays must be float64
         try:
-            p, fitIstatus = fit_spec_poly5(freqArr_Hz/1e9, specI, rmsSpecI,
-                                           polyOrd)
+            p, fitIstatus, redChiSq = fit_spec_poly5(freqArr_Hz/1e9, specI,
+                                                     rmsSpecI, polyOrd)
             specImodel = poly5(p)(freqArr_Hz/1e9)
         except Exception:
             fitIstatus= 0
+            redChiSq=-1
             
         if fitIstatus<1:
             log_wr(LF, "> Warn: I fit failed on '%s'." % 
@@ -201,6 +207,7 @@ def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
         specRec[i]['bpa_deg'] = bpa_deg
         specRec[i]['pixscale_deg'] = wcsDict['pixscale']
         specRec[i]['fNormSumbox'] = HDUILst[0].header["fNorm"]
+        specRec[i]['fitIredChiSq'] = redChiSq
         specRec[i]['fitIstatus'] = fitIstatus
         specRec[i]['coeffPolyIspec'] = ','.join([str(x) for x in p])
         specRec[i]['extractStatus'] = 1
@@ -479,7 +486,7 @@ def extract_data_from_planes(cat, fitsLst, cutoutSide_deg, freqArr_Hz=None,
             # Sum the source spectra in X and Y directions
             dataSum = np.nansum(dataCut[mskIndxSaveLst[j]]) * fNorm
             
-            # Open the FITS file and write the data
+            # Open the FITS file and write the extracted spectrum and rms
             outHDULst = pf.open(outFits, "update", memmap=True) 
             outHDULst[2].data["src"][i] = dataSum
             outHDULst[2].data["rms"][i] = dataRMS               
@@ -579,6 +586,7 @@ def calc_cutout_bounds(nAxisX, nAxisY, xArr_pix, yArr_pix, cutoutRadius_pix):
     
     return [xMinArr_pix, xMaxArr_pix, yMinArr_pix, yMaxArr_pix, edgeFlag]
 
+
 #-----------------------------------------------------------------------------#
 def fit_spec_poly5(xData, yData, dyData = None, order=5):
     """
@@ -629,6 +637,4 @@ def fit_spec_poly5(xData, yData, dyData = None, order=5):
 
     # Use mpfit to perform the fitting
     mp = mpfit(errFn, parinfo=inParms, quiet=True)
-    coeffs = mp.params
-
-    return mp.params, mp.status
+    return mp.params, mp.status, mp.fnorm/mp.dof

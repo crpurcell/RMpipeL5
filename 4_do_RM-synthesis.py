@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
 #           pipeline session.                                                 #
 #                                                                             #
-# MODIFIED: 18-August-2015 by C. Purcell                                      #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
@@ -17,6 +17,7 @@ import sys
 import shutil
 import argparse
 import time
+import traceback
 import math as m
 import numpy as np
 import sqlite3
@@ -60,9 +61,9 @@ def main():
     properties of the resultant Faraday dispersion function and save to a new
     table in the database.
 
-    Each complex Faraday dispersion function is saved in ASCII format to
-    a directory called 'PATH/TO/SESSION/OUT'. The ASCII files are named for
-    the position of the source on the sky.
+    Each complex Faraday dispersion function is saved in FITS format to
+    a directory called 'PATH/TO/SESSION/OUT'. The FITS files are named for
+    the source in the catalogue.
 
     Note: All measurements on the dirty Faraday dispersion function are saved
     to the SQLite database in the file 'PATH/TO/SESSION/session.sqlite'.
@@ -119,7 +120,8 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
         pipeInpObj = PipelineInputs(inParmFile)
         log_wr(LF, "Successfully parsed the input parameter file.")
     except Exception:
-        log_fail(LF, "Err: Failed to parse the input parameter file.")
+        log_wr(LF, "Err: Failed to parse the input parameter file.")
+        log_fail(LF, traceback.format_exc())
 
     # Verify that the parameter file has all the correct entries
     missingLst = pipeInpObj.inparm_verify()
@@ -158,7 +160,8 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
         conn = sqlite3.connect(dbFile)
         cursor = conn.cursor()
     except Exception:
-        log_fail(LF, "Err: Failed to connect to '%s'." % dbFile)
+        log_wr(LF, "Err: Failed to connect to '%s'." % dbFile)
+        log_fail(LF, traceback.format_exc())
         
     # Load the spectral parameter table into memory
     sql = """
@@ -186,13 +189,13 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     insert_arr_db(cursor, rmsfRec, "dirtyFDFparms")
     conn.commit()
     log_wr(LF, "Database updated with RMSF parameters.")
-
+    
     msg = "\n" + "-"*80 + "\n"
     msg += "Proceeding to measure the properties of the FDFs."
     msg = "\n" + "-"*80 + "\n"
     log_wr(LF, msg)
     
-    # Load the spectral & RMSF parameters into memory
+    # Load the spectral & RMSF parameters back into memory
     sql = """
     SELECT spectraParms.uniqueName,
     spectraParms.coeffPolyIspec,

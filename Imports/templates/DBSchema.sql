@@ -17,6 +17,7 @@ bmin_deg double,
 bpa_deg double,
 pixscale_deg double,
 fNormSumbox double,
+fitIredChiSq double,
 fitIstatus int(2),
 extractStatus int(2)
 );

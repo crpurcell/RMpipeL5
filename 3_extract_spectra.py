@@ -211,21 +211,19 @@ def run_spectral_extraction(sessionPath, doOverwrite=False, doReset=False):
                                outDataDir=outDataDir,
                                doOverwrite=doOverwrite,
                                LF=LF)
-    
-    if True:
         
-        # Write the relevant tables to the database
-        insert_arr_db(cursor, specRec, "spectraParms")
-        conn.commit()
-        log_wr(LF, "Database updated with spectral parameters.")
+    # Write the relevant tables to the database
+    insert_arr_db(cursor, specRec, "spectraParms")
+    conn.commit()
+    log_wr(LF, "Database updated with spectral parameters.")
 
-        # Close the connection to the database
-        cursor.close()
-        conn.close()
+    # Close the connection to the database
+    cursor.close()
+    conn.close()
 
-        # Update the status file to reflect successful extraction
-        statusDict["extract"] = 1
-        write_dictfile(statusDict, sessionPath + "/status.json")
+    # Update the status file to reflect successful extraction
+    statusDict["extract"] = 1
+    write_dictfile(statusDict, sessionPath + "/status.json")
     
 
 #-----------------------------------------------------------------------------#
