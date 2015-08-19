@@ -16,7 +16,7 @@
 #           input file with sensible input parameters determined from the     #
 #           properties of the data.                                           #
 #                                                                             #
-# MODIFIED: 17-July-2015 by C. Purcell                                        #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
@@ -29,6 +29,7 @@ import time
 import sqlite3
 import ConfigParser
 import string
+import traceback
 import math as m
 import numpy as np
 from collections import Counter
@@ -59,6 +60,8 @@ sys.stdout = os.fdopen(sys.stdout.fileno(), "w", 0)
 # Map numpy data-types to the limited sqlite3 data-types
 register_sqlite3_numpy_dtypes()
 
+# Scheme to use for automatic names ["position" or "source"]
+nameScheme="source"
 
 #-----------------------------------------------------------------------------#
 def main():
@@ -123,8 +126,9 @@ def main():
 def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
                          doOverwrite=False):
     """
-    Create an image session directory, link to a dataset and catalogue and
-    populate a default pipeline driving file with sensible values.
+    Create an image session directory and session database file. Load a source
+    catalogue into the database, link the session to a verified dataset and
+    populate the pipeline driving file with sensible default values.
     """
     
     dataPath = dataPath.rstrip("/")
@@ -158,6 +162,7 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         log_wr(LF, "Start time: %s" % time.ctime() )
     except Exception:
         print "Err: Failed to open the log file '%s'." % logFile
+        print traceback.format_exc()
         sys.exit()
 
     # Write a status file to keep track of pipeline tasks performed
@@ -218,6 +223,19 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         log_wr(LF, "Failed to parse or read catalogue.")
         log_fail(LF, traceback.format_exc())
 
+    # Populate the unique-name field if not defined in the input catalogue
+    if not catHasUniqueName:
+        if nameScheme=="position":
+            log_wr(LF, "Assigning a position-based name to each cat entry.")
+            for i in range(len(catRec)):
+                catRec[i]["uniqueName"] = \
+                  deg2dms(catRec[i]["x_deg"]/15.0, delim="", nPlaces=1) + \
+                  deg2dms(catRec[i]["y_deg"], delim="", doSign=True, nPlaces=2)
+        else:
+            log_wr(LF, "Assigning a 'Source_N' name to each catalogue entry.")
+            for i in range(len(catRec)):
+                catRec[i]["uniqueName"] = "Source_" + str(i+1)
+                
     # Check that the existing uniqueName field is unique 
     if catHasUniqueName:
         nameLst = catRec["uniqueName"].tolist()
@@ -225,21 +243,13 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         if dupLst:
             log_wr(LF, "Input source names are not unique!")
             log_fail(LF, "> Duplicate names: %s" % dupLst)
-
-    # Populate the unique-name field if not defined in the input catalogue
-    if not catHasUniqueName:
-        log_wr(LF, "Assigning a unique name to each entry (position based).")
-        for i in range(len(catRec)):
-            catRec[i]["uniqueName"] = \
-                deg2dms(catRec[i]["x_deg"]/15.0, delim="", nPlaces=1) + \
-                deg2dms(catRec[i]["y_deg"], delim="", doSign=True, nPlaces=2)
-
+            
     # Read the SQL schema for the internal database
     schemaFile = "Imports/templates/DBSchema.sql"
     log_wr(LF, "Parsing the database schema from '%s'" % schemaFile)
     tableDtypeDict, tableSQLdict = schema_to_tabledef(schemaFile)
     
-    # Create a new persistent database using the table schema
+    # Create a new database file using the table schema
     dbFile = sessionPath + "/session.sqlite"
     success = create_db(dbFile, dict(catSQLdict.items()+tableSQLdict.items()))
     if success:

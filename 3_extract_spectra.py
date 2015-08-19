@@ -6,15 +6,15 @@
 # USAGE:    ./3_extract_spectra.py PATH/TO/SESSION                            #
 #                                                                             #
 # PURPOSE:  Extract spectra from the I, Q & U FITS files linked to a          #
-#           POSSUM pipeline session.                                          #
+#           RM pipeline session.                                              #
 #                                                                             #
-# MODIFIED: 17-August-2015 by C. Purcell                                      #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 # TODO:                                                                       #
 #                                                                             #
-#  * Implement an LPF alternative, as a fallback mode if the I fit fails.     #
 #  * Check that blanked (NaN) planes/pixels are dealt with correctly.         #
 #    - certainly not dealt with in mpfit.                                     #
+#  * Implement an LPF alternative, as a fallback mode if the I fit fails?     #
 #                                                                             #
 #=============================================================================#
 
@@ -40,7 +40,6 @@ from Imports.util_DB import select_into_arr
 from Imports.util_DB import insert_arr_db
 
 from Imports.module_spec_extract_area import mod_spec_extract
-#from Imports.module_spec_extract import mod_spec_extract
 
 # Constants
 C = 2.99792458e8
