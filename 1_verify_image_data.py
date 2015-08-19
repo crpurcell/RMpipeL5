@@ -7,10 +7,10 @@
 #                                                       [-U patU] [-h --help] #
 #                                                                             #
 # PURPOSE:  Read and verify the Stokes I, Q & U image-FITS data, perform      #
-#           simple sanity checks and write vectors of frequency, channel and  #
-#           file to disk.                                                     #
+#           simple sanity checks and write vectors of frequency and filename  #
+#           to ASCII files on disk.                                           #
 #                                                                             #
-# MODIFIED: 17-July-2015 by C. Purcell                                        #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
@@ -165,9 +165,9 @@ def verify_image_data(dataPath, patI, patQ, patU):
             sys.exit()
         
         # Check the frequencies are the same (assume CRVAL3=freq)
-        freqI = headI['CRVAL3']
-        freqQ = headQ['CRVAL3']
-        freqU = headU['CRVAL3']
+        freqI = headI['CRVAL3'] + (1 - headI['CRPIX3']) * headI['CDELT3']
+        freqQ = headQ['CRVAL3'] + (1 - headQ['CRPIX3']) * headQ['CDELT3']
+        freqU = headU['CRVAL3'] + (1 - headU['CRPIX3']) * headU['CDELT3']
         if freqI!=freqQ or freqI!=freqU:
             print "The frequencies of the three Stokes files do not match."
             print "[%s, %s, %s]" % (freqI, freqQ, freqU)
@@ -210,7 +210,7 @@ def verify_image_data(dataPath, patI, patQ, patU):
 
     # Note the type of data in a file (placeholder: we may add other types)
     typeFile = dataPath + '/dataType.txt'
-    print "Noting dataType=FITS_planes in file '%s'." % typeFile
+    print "Noting dataType='FITS_planes' in file '%s'." % typeFile
     FH = open(typeFile, 'w')
     FH.write("FITS_planes\n")
     FH.close()

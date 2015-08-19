@@ -6,13 +6,15 @@
 # USAGE:    ./mk_test_data.py                                                 #
 #                                                                             #
 # PURPOSE:  Create a small FITS dataset for the purposes of testing the       #
-#           RM-pipeline. Edit the values at the top of the script and run.    #
+#           RM-pipeline. The script outputs a set of IQU image planes         #
+#           containing unresolved sources. Edit the values at the top of the  #
+#           script and run.                                                   #
 #                                                                             #
-# MODIFIED: 23-July-2015 by C. Purcell                                        #
+# MODIFIED: 19-August-2015 by C. Purcell                                      #
 #                                                                             #
 #=============================================================================#
 
-# Proposed session path/name
+# Session path/name
 sessionPath = "testSession/"
 
 # Data cube parameters
@@ -99,7 +101,7 @@ def main():
     and a SQL description of that catalogue. The catalogue file is used to
     drive the pipeline and the SQL descripton file tells the pipeline the
     format of the catalogue. This allows the user to define custom columns in
-    the input catalogue, which are then incorporated in the results database.
+    the input catalogue, which are then incorporated into the results database.
 
     Example:
 
