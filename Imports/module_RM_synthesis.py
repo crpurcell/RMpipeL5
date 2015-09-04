@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 18-Aug-2015 by C. Purcell                                         #
+# MODIFIED: 04-Sep-2015 by C. Purcell                                         #
 #                                                                             #
 # TODO:                                                                       #
 #   * If doOverwrite is not set, read and return the existing result          #
@@ -126,17 +126,20 @@ def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
             col1 = pf.Column(name="freq", format="f4", array=freqArr_Hz)
             col2 = pf.Column(name="lamsq", format="f4", array=lamSqArr_m2)
             col3 = pf.Column(name="weight", format="f4", array=weightArr)
-            hdu1 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            hdu1 = pf.new_table([col1, col2, col3])
+            #hdu1 = pf.BinTableHDU.from_columns([col1, col2, col3])
             
             col1 = pf.Column(name="phiSamp", format="f4", array=phiSampArr)
             col2 = pf.Column(name="RMSFreal", format="f4", array=RMSFArr.real)
             col3 = pf.Column(name="RMSFimag", format="f4", array=RMSFArr.imag)
-            hdu2 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            hdu2 = pf.new_table([col1, col2, col3])
+            #hdu2 = pf.BinTableHDU.from_columns([col1, col2, col3])
             
             col1 = pf.Column(name="phi", format="f4", array=phiArr)
             col2 = pf.Column(name="FDFreal", format="f4", array=dirtyFDF.real)
             col3 = pf.Column(name="FDFimag", format="f4", array=dirtyFDF.imag)
-            hdu3 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            hdu3 = pf.new_table([col1, col2, col3])
+            #hdu3 = pf.BinTableHDU.from_columns([col1, col2, col3])
 
             col1 = pf.Column(name="CC", format="f4",
                              array=np.zeros_like(dirtyFDF.real))
@@ -144,7 +147,8 @@ def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
                              array=np.zeros_like(dirtyFDF.real))
             col3 = pf.Column(name="FDFimag", format="f4",
                              array=np.zeros_like(dirtyFDF.real))
-            hdu4 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            hdu4 = pf.new_table([col1, col2, col3])
+            #hdu4 = pf.BinTableHDU.from_columns([col1, col2, col3])
             
             hduLst = pf.HDUList([hdu0, hdu1, hdu2, hdu3, hdu4])
             hduLst.writeto(outFits, output_verify="fix", clobber=True)
