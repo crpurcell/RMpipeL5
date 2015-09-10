@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 18-August-2015 by C. Purcell                                      #
+# MODIFIED: 10-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -131,7 +131,8 @@ class PipelineInputs:
 
     def get_flat_dict(self, includeDerived=False):
         """
-        Return a dictionary of key=val assuming unique keys across all sections.
+        Return a dictionary of key=val assuming unique keys across all
+        sections.
         """
         pDict = {}
         for section in self.config.sections():
@@ -320,18 +321,23 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_specI_byname(uniqueName)
 
-    def get_modI_byname(self, uniqueName):
+    def get_modI_byname(self, uniqueName, oversample=False, getStored=False):
         specDir = self.sessionPath + '/OUT'
         dataFile = specDir +  '/' + uniqueName +  '_specI.fits'
         HDULst = pf.open(dataFile, "readonly", memmap=True)
         freqArr_Hz = HDULst[2].data["freq"]
-        modIArr_Jy = HDULst[2].data["model"]
+        if oversample:
+            freqArr_Hz = np.linspace(freqArr_Hz[0], freqArr_Hz[-1], 10000)
+            p = self.get_Imodel_coeffs_byname(uniqueName)
+            modIArr_Jy = poly5(p)(freqArr_Hz/1e9)
+        else:
+            modIArr_Jy = HDULst[2].data["model"]
         HDULst.close()
         return freqArr_Hz, modIArr_Jy
     
-    def get_modI_byindx(self, indx):
+    def get_modI_byindx(self, indx, oversample=False, getStored=False):
         uniqueName = self.indx2name(indx)
-        return self.get_modI_byname(uniqueName)
+        return self.get_modI_byname(uniqueName, oversample, getStored)
     
     def get_specQ_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
@@ -418,43 +424,150 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_ccFDF_byname(uniqueName)
 
-    def get_thin_qumodel_byname(self, uniqueName, oversample=False):
-        pass
-        # Determine the frequency sampling
-#        freqArr_Hz, IArr_Jy, rmsIArr_Jy = get_specI_byname(uniqueName)
-#        if oversample:
-#            freqArr_Hz = np.linspace(freqArr_Hz[0], freqArr_Hz[-1], 10000)
+    def get_Imodel_coeffs_byname(self, uniqueName):
+        # Connect to the database and fetch the parameters
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        sql = """
+        SELECT coeffPolyIspec
+        FROM spectraParms
+        WHERE uniqueName='%s'
+        """ % (uniqueName)
+        resultArr = self.query_database(sql, buffer=False)
+        cursor.close()
+        coeffLst = []
+        if len(resultArr)>0:
+            coeffLst = [float(x) for x in resultArr[0][0].split(",")]
+        return coeffLst
+
+    def get_Imodel_coeffs_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_Imodel_params_byname(uniqueName)
         
-        # Get the parameters of the peak    
-#        conn = sqlite3.connect(self.dbFile)
-#        cursor = conn.cursor()
-#        sql = """
-#        SELECT
-#        spectraParms.coeffPolyIspec,
-#        """
-#        resultArr = self.query_database(sql, buffer=False)
+    def get_RMSF_params_byname(self, uniqueName):
+        
+        # Connect to the database and fetch the parameters
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        sql = """
+        SELECT
+        lam0Sq_m2,
+        freq0_Hz,
+        nPhiChan,
+        deltaPhiChan_rm2,
+        phiCentre_rm2,
+        weightType,
+        fwhmRMSF
+        FROM dirtyFDFparms
+        WHERE uniqueName='%s'
+        """ % (uniqueName)
+        resultArr = self.query_database(sql, buffer=False)
+        cursor.close()
+        conn.close()
+        pDict = {}
+        if len(resultArr)>0:
+            for key,val in zip(resultArr.dtype.names, resultArr[0]):
+                pDict[key] = val
+        return pDict        
 
-#        cursor.close()
-#        conn.close()
+    def get_RMSF_params_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_RMSF_params_byname(uniqueName)
+    
+    def get_FDF_peak_params_byname(self, uniqueName, doClean=False):
 
-#        create_IQU_spectra_RMthin(freqArr_Hz, fluxI_mJy, SI, fracPol, psi0_deg, 
-#                              RM_radm2):
+        if doClean:
+            FDFtable = "cleanFDFparms"            
+        else:
+            FDFtable = "dirtyFDFparms"
+    
+        # Connect to the database and fetch the parameters of the peak
+        conn = sqlite3.connect(self.dbFile)
+        cursor = conn.cursor()
+        sql = "SELECT "
+        sql += "dirtyFDFparms.lam0Sq_m2, "
+        sql += "dirtyFDFparms.freq0_Hz, "
+        sql += "%s.phiPeakPIfit_rm2, " % (FDFtable)
+        sql += "%s.dPhiPeakPIfit_rm2, " % (FDFtable)
+        sql += "%s.ampPeakPIfit_Jybm, " % (FDFtable)
+        sql += "%s.dAmpPeakPIfit_Jybm, " % (FDFtable)
+        sql += "%s.polAngleFit_deg, " % (FDFtable)
+        sql += "%s.dPolAngleFit_deg, " % (FDFtable)
+        sql += "%s.polAngle0Fit_deg, " % (FDFtable)
+        sql += "%s.dPolAngle0Fit_deg, " % (FDFtable)
+        sql += "cleanFDFparms.cleanCutoff_sigma, "
+        sql += "cleanFDFparms.cleanCutoff_Jybm, "
+        sql += "spectraParms.coeffPolyIspec "
+        sql += "FROM spectraParms INNER JOIN dirtyFDFparms "
+        sql += "ON dirtyFDFparms.uniqueName = spectraParms.uniqueName "
+        sql += "INNER JOIN cleanFDFparms "
+        sql += "ON cleanFDFparms.uniqueName = spectraParms.uniqueName "
+        sql += "WHERE spectraParms.uniqueName='%s'" % (uniqueName)
+        resultArr = self.query_database(sql, buffer=False)
+        cursor.close()
+        conn.close()
+        pDict = {}
+        if len(resultArr)>0:
+            for key,val in zip(resultArr.dtype.names, resultArr[0]):
+                pDict[key] = val
+        return pDict
+
+    def get_FDF_peak_params_byindx(self, indx, doClean=False):
+        uniqueName = self.indx2name(indx)
+        return self.get_FDF_peak_params_byname(uniqueName, doClean)
+        
+    def get_thin_qumodel_byindx(self, indx, oversample=False, 
+                                doClean=False):
+        uniqueName = self.indx2name(indx)
+        return self.get_thin_qumodel_byname(uniqueName, oversample, doClean)
+
+    def get_thin_qumodel_byname(self, uniqueName, oversample=False, 
+                                doClean=False):
+        
+        # Determine the frequency sampling
+        freqArr_Hz, modIArr_Jy = self.get_modI_byname(uniqueName)
+        if oversample:
+            freqArr_Hz = np.linspace(freqArr_Hz[0], freqArr_Hz[-1], 10000)
             
-#        return 
+        # Get the parameters of the peak in the FDF
+        pDict = self.get_FDF_peak_params_byname(uniqueName, doClean)
+        p = [float(x) for x in pDict["coeffPolyIspec"].split(",")]
 
+        # Calculate the fractional polarisation at lambda0/freq0
+        ampPeakIfreq0_Jybm = poly5(p)(pDict["freq0_Hz"]/1e9)
+        fracPol = pDict["ampPeakPIfit_Jybm"]/ampPeakIfreq0_Jybm
+
+        # Create a model spectrum
+        pArr, qArr, uArr = create_pqu_spectra_RMthin(freqArr_Hz, fracPol,
+                                                   pDict["polAngle0Fit_deg"], 
+                                                   pDict["phiPeakPIfit_rm2"])
+        return freqArr_Hz, qArr, uArr
 
     def get_stampI_byindx(self, indx):
         uniqueName = self.indx2name(indx)
         return self.get_stampI_byname(uniqueName)
     
     def get_stampI_byname(self, uniqueName):
-
         dataDir = self.sessionPath + '/OUT'
-        stampIfits = dataDir +  '/' + uniqueName +  "_stampI.fits"
-        head = pf.getheader(stampIfits)
-        data = pf.getdata(stampIfits)
+        dataFile = dataDir +  '/' + uniqueName +  '_specI.fits'
+        head = pf.getheader(dataFile)
+        data = pf.getdata(dataFile)[0]
         return data, head
 
+    def get_stampP_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_stampP_byname(uniqueName)
+    
+    def get_stampP_byname(self, uniqueName):
+        dataDir = self.sessionPath + '/OUT'
+        dataQFile = dataDir +  '/' + uniqueName +  '_specQ.fits'
+        head = pf.getheader(dataQFile)
+        dataQ = pf.getdata(dataQFile)[0]
+        dataUFile = dataDir +  '/' + uniqueName +  '_specU.fits'
+        dataU = pf.getdata(dataUFile)[0]
+        data = np.sqrt(dataQ**2.0+dataU**2.0)        
+        return data, head
+    
     def get_database_schema(self):
         conn = sqlite3.connect(self.dbFile)
         cursor = conn.cursor()

@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Common function for plotting fits images.                         #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 04-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -23,6 +23,7 @@ import astropy.wcs.wcs as pw
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
+from matplotlib.ticker import MaxNLocator
 from matplotlib.ticker import FuncFormatter
 from matplotlib.patches import Ellipse
 from matplotlib.patches import Polygon
@@ -89,7 +90,6 @@ def label_format_hms(deg, pos):
         mm = 0.0
         dd+=1.0
 
-
     if sign > 0:
         return "%02dh%02dm%02.0fs" % (sign*dd, mm, ss)
     else:
@@ -98,8 +98,8 @@ def label_format_hms(deg, pos):
     
 #-----------------------------------------------------------------------------#
 def label_format_deg(deg, pos):
-
-    return "%.2f" % deg
+    
+    return "%.3f" % deg
 
 
 #-----------------------------------------------------------------------------#
@@ -197,14 +197,17 @@ def plot_fits_map(data, header, stretch='auto', exponent=2, scaleFrac=0.9,
     ax.yaxis.set_major_formatter(majorFormatterY)
     
     # Set the location of the the major tick marks
-    xrangeArcmin = abs(w['xmax']-w['xmin'])*(60.0*f)
-    xmultiple = m.ceil(xrangeArcmin/3.0)/(60.0*f)
-    yrangeArcmin = abs(w['ymax']-w['ymin'])*60.0
-    ymultiple = m.ceil(yrangeArcmin/3.0)/60.0
-    majorLocatorX = MultipleLocator(xmultiple)
-    ax.xaxis.set_major_locator(majorLocatorX)
-    majorLocatorY = MultipleLocator(ymultiple)
-    ax.yaxis.set_major_locator(majorLocatorY)
+    #xrangeArcmin = abs(w['xmax']-w['xmin'])*(60.0*f)
+    #xmultiple = m.ceil(xrangeArcmin/3.0)/(60.0*f)
+    #yrangeArcmin = abs(w['ymax']-w['ymin'])*60.0
+    #ymultiple = m.ceil(yrangeArcmin/3.0)/60.0
+    #majorLocatorX = MultipleLocator(xmultiple)
+    #ax.xaxis.set_major_locator(majorLocatorX)
+    #majorLocatorY = MultipleLocator(ymultiple)
+    #ax.yaxis.set_major_locator(majorLocatorY)
+    
+    ax.xaxis.set_major_locator(MaxNLocator(5))
+    ax.yaxis.set_major_locator(MaxNLocator(5))
     
     # Print the image to the axis
     im = ax.imshow(data, interpolation=interpolation, origin='lower',

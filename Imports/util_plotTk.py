@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Plotting functions for the POSSUM pipeline Tk interface.          #
 #                                                                             #
-# MODIFIED: 16-July-2015 by C. Purcell                                        #
+# MODIFIED: 10-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -39,6 +39,7 @@
 
 import os
 import sys
+import math as m
 import numpy as np
 import StringIO
 import astropy.io.fits as pf
@@ -166,23 +167,23 @@ def plot_PQU_vs_nu_ax(ax, freqArr_Hz, QArr_mJy, UArr_mJy, dQArr_mJy=None,
         
     # Plot P, Q, U versus frequency
     ax.errorbar(x=freqArr_Hz/1e9, y=QArr_mJy, yerr=dQArr_mJy, mec='b',
-                mfc='none', ms=4, fmt='D', color='b', elinewidth=0.3,
-                capsize=2, label='Stokes Q', linestyle='-')
+                mfc='none', ms=4, fmt='D', color='g', elinewidth=1.0,
+                capsize=2, label='Stokes Q')
     ax.errorbar(x=freqArr_Hz/1e9, y=UArr_mJy, yerr=dUArr_mJy, mec='r',
-                mfc='none', ms=4, fmt='D', color='r', elinewidth=0.3,
-                capsize=2, label='Stokes U', linestyle='-')
+                mfc='none', ms=4, fmt='D', color='r', elinewidth=1.0,
+                capsize=2, label='Stokes U')
     ax.errorbar(x=freqArr_Hz/1e9, y=PArr_mJy, yerr=dPArr_mJy, mec='k',
-                mfc='none', ms=4, fmt='D', color='k', elinewidth=0.3,
-                capsize=2, label='Stokes P', linestyle='-')
+                mfc='none', ms=4, fmt='D', color='k', elinewidth=1.0,
+                capsize=2, label='Intensity P')
     
     # Plot the models
     if QmodArr is not None:
-        ax.plot(freqArr_Hz/1e9, QmodArr, color='b', lw=0.5, label='Model Q')
+        ax.plot(freqHirArr_Hz/1e9, QmodArr, color='b', lw=0.5, label='Model Q')
     if UmodArr is not None:
-        ax.plot(freqArr_Hz/1e9, UmodArr, color='r', lw=0.5, label='Model U')
+        ax.plot(freqHirArr_Hz/1e9, UmodArr, color='r', lw=0.5, label='Model U')
     if QmodArr is not None and UmodArr is not None:
         PmodArr = np.sqrt(QmodArr**2.0 + UmodArr**2.0 )
-        ax.plot(freqArr_Hz/1e9, PmodArr, color='k', lw=0.5, label='Model P')
+        ax.plot(freqHirArr_Hz/1e9, PmodArr, color='k', lw=0.5, label='Model P')
 
     # Formatting
     ax.yaxis.set_major_locator(MaxNLocator(4))
@@ -408,7 +409,7 @@ def plot_RMSF_ax(ax, phiArr, RMSFArr, fwhmRMSF=None, axisYright=False,
 
     # Plot the Gaussian fit
     if fwhmRMSF is not None:
-        yGauss = gauss([1.0, 0.0, fwhmRMSF])(phi2Arr)
+        yGauss = gauss([1.0, 0.0, fwhmRMSF])(phiArr)
         ax.plot(phiArr, yGauss, color='magenta',marker='None',mfc='w',
                 mec='g', ms=10, label='Gaussian Fit', lw=2.0, ls='--')
     
@@ -470,7 +471,11 @@ def plot_dirtyFDF_ax(ax, phiArr, FDFArr_mJy, gaussParm=[], title="Dirty FDF",
     # Plot the Gaussian peak
     if len(gaussParm)==3:
         # [amp, mean, FWHM]
-        yGauss = gauss(gaussParm)(phi2Arr)
+        phiTrunkArr = np.where(phiArr>=gaussParm[1]-gaussParm[2]/3.0,
+                               phiArr, np.nan)
+        phiTrunkArr = np.where(phiArr<=gaussParm[1]+gaussParm[2]/3.0,
+                               phiTrunkArr, np.nan)
+        yGauss = gauss(gaussParm)(phiTrunkArr)
         ax.plot(phiArr, yGauss, color='magenta',marker='None',mfc='w',
                 mec='g', ms=10, label='Peak Fit', lw=2.5, ls='-')
 
@@ -530,13 +535,17 @@ def plot_cleanFDF_ax(ax, phiArr, cleanFDFArr_mJy, ccFDFArr_mJy=None,
     # Plot the Gaussian peak
     if len(gaussParm)==3:
         # [amp, mean, FWHM]
-        yGauss = gauss(gaussParm)(phi2Arr)
+        phiTrunkArr = np.where(phiArr>=gaussParm[1]-gaussParm[2]/3.0,
+                               phiArr, np.nan)
+        phiTrunkArr = np.where(phiArr<=gaussParm[1]+gaussParm[2]/3.0,
+                               phiTrunkArr, np.nan)
+        yGauss = gauss(gaussParm)(phiTrunkArr)
         ax.plot(phiArr, yGauss, color='magenta',marker='None',mfc='w',
                 mec='g', ms=10, label='Peak Fit', lw=2.5, ls='-')
 
     # Plot the clean cutoff line
     if not cutoff_mJy is None:
-        ax.axhline(cutoff_mJy, color="r")
+        ax.axhline(cutoff_mJy, color="r", ls='--')
 
     # Scaling
     ax.yaxis.set_major_locator(MaxNLocator(4))
@@ -564,9 +573,15 @@ def plotSpecIPQU(dataMan, indx, io='fig'):
 
     # Get the data
     freqArr_Hz, IArr_Jy, rmsIArr_Jy= dataMan.get_specI_byindx(indx)
-    dummy, modIArr_Jy = dataMan.get_modI_byindx(indx)
     dummy, QArr_Jy, rmsQArr_Jy= dataMan.get_specQ_byindx(indx)
     dummy, UArr_Jy, rmsUArr_Jy= dataMan.get_specU_byindx(indx)
+    
+    # Get the models to overplot
+    freqHirArr_Hz, qModArr, uModArr = dataMan.get_thin_qumodel_byindx(indx, 
+                                                             oversample=True)
+    freqHirArr_Hz, IModArr_mJy = dataMan.get_modI_byindx(indx, oversample=True)
+    QmodArr = qModArr * IModArr_mJy
+    UmodArr = uModArr * IModArr_mJy
     
     # Setup the figure
     fig = Figure()
@@ -578,7 +593,8 @@ def plotSpecIPQU(dataMan, indx, io='fig'):
                     freqArr_Hz  = freqArr_Hz,
                     IArr_mJy    = IArr_Jy*1e3,
                     dIArr_mJy   = rmsIArr_Jy*1e3,
-                    IModArr_mJy = modIArr_Jy*1e3)
+                    freqHirArr_Hz = freqHirArr_Hz,
+                    IModArr_mJy = IModArr_mJy*1e3)
     ax1.set_xlabel('')
     [label.set_visible(False) for label in ax1.get_xticklabels()]
 
@@ -589,8 +605,11 @@ def plotSpecIPQU(dataMan, indx, io='fig'):
                       QArr_mJy   = QArr_Jy*1e3,
                       UArr_mJy   = UArr_Jy*1e3,
                       dQArr_mJy  = rmsQArr_Jy*1e3,
-                      dUArr_mJy  = rmsUArr_Jy*1e3)
-
+                      dUArr_mJy  = rmsUArr_Jy*1e3,
+                      freqHirArr_Hz=freqHirArr_Hz,
+                      QmodArr=QmodArr*1e3,
+                      UmodArr=UmodArr*1e3)
+    
     # Write to the pipe
     if io=='string':
         sio = StringIO.StringIO()
@@ -648,6 +667,11 @@ def plotPolang(dataMan, indx, io='fig'):
                             (rmsIArr_Jy/IArr_Jy)**2.0 )
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
 
+    # Get the models to overplot
+    freqHirArr_Hz, qModArr, uModArr = dataMan.get_thin_qumodel_byindx(indx, 
+                                                             oversample=True)
+    lamSqHirArr_m2 = np.power(C/freqHirArr_Hz, 2.0)
+
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -659,7 +683,10 @@ def plotPolang(dataMan, indx, io='fig'):
                          qArr        = qArr,
                          uArr        = uArr,
                          dqArr       = dqArr,
-                         duArr       = duArr, 
+                         duArr       = duArr,
+                         lamSqHirArr_m2 = lamSqHirArr_m2,
+                         qModArr     = qModArr,
+                         uModArr     = uModArr, 
                          axisYright  = False)
     
     # Write to the pipe
@@ -688,7 +715,12 @@ def plotFracPol(dataMan, indx, io='fig'):
     duArr = uArr * np.sqrt( (rmsUArr_Jy/UArr_Jy)**2.0 + 
                             (rmsIArr_Jy/IArr_Jy)**2.0 )
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
-    
+
+    # Get the models to overplot
+    freqHirArr_Hz, qModArr, uModArr = dataMan.get_thin_qumodel_byindx(indx, 
+                                                             oversample=True)
+    lamSqHirArr_m2 = np.power(C/freqHirArr_Hz, 2.0)
+
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -700,8 +732,11 @@ def plotFracPol(dataMan, indx, io='fig'):
                          qArr        = qArr,
                          uArr        = uArr,
                          dqArr       = dqArr,
-                         duArr       = duArr) 
-        
+                         duArr       = duArr,
+                         lamSqHirArr_m2 = lamSqHirArr_m2,
+                         qModArr     = qModArr,
+                         uModArr     = uModArr)
+
     # Write to the pipe
     if io=='string':
         sio = StringIO.StringIO()
@@ -731,6 +766,11 @@ def plotFracQvsU(dataMan, indx, io='fig'):
                             (rmsIArr_Jy/IArr_Jy)**2.0 )
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
 
+    # Get the models to overplot
+    freqHirArr_Hz, qModArr, uModArr = dataMan.get_thin_qumodel_byindx(indx, 
+                                                             oversample=True)
+    lamSqHirArr_m2 = np.power(C/freqHirArr_Hz, 2.0)
+
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -742,7 +782,10 @@ def plotFracQvsU(dataMan, indx, io='fig'):
                    qArr        = qArr,
                    uArr        = uArr,
                    dqArr       = dqArr,
-                   duArr       = duArr, 
+                   duArr       = duArr,
+                   lamSqHirArr_m2 = lamSqHirArr_m2,
+                   qModArr     = qModArr,
+                   uModArr     = uModArr, 
                    axisYright  = False)
     
     # Write to the pipe
@@ -773,6 +816,11 @@ def plotPolsummary(dataMan, indx, io='fig'):
                             (rmsIArr_Jy/IArr_Jy)**2.0 )
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
 
+    # Get the models to overplot
+    freqHirArr_Hz, qModArr, uModArr = dataMan.get_thin_qumodel_byindx(indx, 
+                                                             oversample=True)
+    lamSqHirArr_m2 = np.power(C/freqHirArr_Hz, 2.0)
+
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -793,7 +841,10 @@ def plotPolsummary(dataMan, indx, io='fig'):
                          qArr        = qArr,
                          uArr        = uArr,
                          dqArr       = dqArr,
-                         duArr       = duArr)
+                         duArr       = duArr,
+                         lamSqHirArr_m2 = lamSqHirArr_m2,
+                         qModArr     = qModArr,
+                         uModArr     = uModArr)
     
     # Plot psi versus lambda^2
     ax3 = fig.add_subplot(222)
@@ -803,6 +854,9 @@ def plotPolsummary(dataMan, indx, io='fig'):
                          uArr        = uArr,
                          dqArr       = dqArr,
                          duArr       = duArr,
+                         lamSqHirArr_m2 = lamSqHirArr_m2,
+                         qModArr     = qModArr,
+                         uModArr     = uModArr,
                          axisYright=True,
                          axisXtop=True)
     
@@ -813,7 +867,10 @@ def plotPolsummary(dataMan, indx, io='fig'):
                    qArr        = qArr,
                    uArr        = uArr,
                    dqArr       = dqArr,
-                   duArr       = duArr, 
+                   duArr       = duArr,
+                   lamSqHirArr_m2 = lamSqHirArr_m2,
+                   qModArr     = qModArr,
+                   uModArr     = uModArr, 
                    axisYright  = True)
 
     # Write to the pipe
@@ -829,9 +886,10 @@ def plotPolsummary(dataMan, indx, io='fig'):
 #-----------------------------------------------------------------------------#
 def plotRMSF(dataMan, indx, io='fig'):
 
-    # Get the data
+    # Get the data and Gaussian fit to RMSF
     phiArr, RMSFArr =  dataMan.get_RMSF_byindx(indx)
-
+    pDict = dataMan.get_RMSF_params_byindx(indx)
+    
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -840,8 +898,9 @@ def plotRMSF(dataMan, indx, io='fig'):
     ax1 = fig.add_subplot(111)    
     plot_RMSF_ax(ax=ax1,
                  phiArr  = phiArr,
-                 RMSFArr = RMSFArr)
-
+                 RMSFArr = RMSFArr,
+                 fwhmRMSF=pDict["fwhmRMSF"])
+    
     # Write to the pipe
     if io=='string':
         sio = StringIO.StringIO()
@@ -857,6 +916,13 @@ def plotDirtyFDF(dataMan, indx, io='fig'):
 
     # Get the data
     phiArr, FDFArr_Jy = dataMan.get_dirtyFDF_byindx(indx)
+
+    # Get the peak results
+    pDict = dataMan.get_FDF_peak_params_byindx(indx)
+    pDict1 = dataMan.get_RMSF_params_byindx(indx)
+    gaussParm=[pDict["ampPeakPIfit_Jybm"]*1e3,
+               pDict["phiPeakPIfit_rm2"],
+               pDict1["fwhmRMSF"]]
     
     # Setup the figure
     fig = Figure()
@@ -867,6 +933,7 @@ def plotDirtyFDF(dataMan, indx, io='fig'):
     plot_dirtyFDF_ax(ax=ax1,
                      phiArr     = phiArr,
                      FDFArr_mJy = FDFArr_Jy*1e3,
+                     gaussParm  = gaussParm,
                      title="Dirty Faraday Dispersion Function")
 
     # Write to the pipe
@@ -887,6 +954,13 @@ def plotCleanFDF(dataMan, indx, io='fig'):
     dummy, cleanFDFArr_Jy = dataMan.get_cleanFDF_byindx(indx)
     dummy, ccFDF_Jy = dataMan.get_ccFDF_byindx(indx)
     
+    # Get the peak results
+    pDict = dataMan.get_FDF_peak_params_byindx(indx, doClean=True)
+    pDict1 = dataMan.get_RMSF_params_byindx(indx)
+    gaussParm=[pDict["ampPeakPIfit_Jybm"]*1e3,
+               pDict["phiPeakPIfit_rm2"],
+               pDict1["fwhmRMSF"]]
+    
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
@@ -898,8 +972,9 @@ def plotCleanFDF(dataMan, indx, io='fig'):
                      cleanFDFArr_mJy = cleanFDFArr_Jy*1e3,
                      ccFDFArr_mJy    = ccFDF_Jy*1e3,
                      dirtyFDFArr_mJy = dirtyFDFArr_Jy*1e3,
-                     gaussParm       = [],
-                     title           = "Clean Faraday Dispersion Function")
+                     gaussParm       = gaussParm,
+                     title           = "Clean Faraday Dispersion Function",
+                     cutoff_mJy      =  pDict["cleanCutoff_Jybm"]*1e3)
 
     # Write to the pipe
     if io=='string':
@@ -917,6 +992,28 @@ def plotStampI(dataMan, indx, io='fig'):
     # Get the data & header of the saved postage stamp
     data, head = dataMan.get_stampI_byindx(indx)
     
+    # Setup the figure
+    fig = Figure()
+    fig.set_size_inches([8,8])
+
+    fig = plot_fits_map(data, head, fig=fig)
+
+    # Write to the pipe
+    if io=='string':
+        sio = StringIO.StringIO()
+        setattr(sio, "name", "foo.jpg")
+        fig.savefig(sio, format='jpg' )    
+        return sio
+    else:
+        return fig
+    
+
+#-----------------------------------------------------------------------------#
+def plotStampP(dataMan, indx, io='fig'):
+
+    # Get the data & header of the saved postage stamp
+    data, head = dataMan.get_stampP_byindx(indx)
+
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])

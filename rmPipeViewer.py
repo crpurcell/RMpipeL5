@@ -6,7 +6,7 @@
 # PURPOSE:  A graphical interface designed to view the results of the Level 5 #
 #           RM-pipeline prototype.                                            #
 #                                                                             #
-# MODIFIED: 17-August-2015 by cpurcell                                        #
+# MODIFIED: 10-September-2015 by cpurcell                                     #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -81,8 +81,11 @@ class App:
         self.root.bind("<<show_values>>", lambda event, 
                        resultType="show_values" : 
                        self.on_show_result(event, resultType))
-        self.root.bind("<<plot_cutouts>>", lambda event, 
-                       resultType="plot_cutouts" : 
+        self.root.bind("<<plot_stampI>>", lambda event, 
+                       resultType="plot_stampI" : 
+                       self.on_show_result(event, resultType))
+        self.root.bind("<<plot_stampP>>", lambda event, 
+                       resultType="plot_stampP" :
                        self.on_show_result(event, resultType))
         self.root.bind("<<plot_IPQU>>", lambda event, 
                        resultType="plot_IPQU" : 
@@ -217,7 +220,8 @@ class App:
         
         # Clear the plotting window and create the requested plot
         self.reset_plotting_window()
-        if resultType in ["plot_cutouts",
+        if resultType in ["plot_stampI",
+                          "plot_stampP",
                           "plot_IPQU",
                           "plot_IQUrms", 
                           "plot_polang",
@@ -233,8 +237,10 @@ class App:
 
         # TODO: implement the show_values and plot_cutouts actions
         elif resultType in ["show_values"]:
-            errStr = "The action '%s' is not yet supported." % resultType
-            tkMessageBox.showinfo("Error", errStr)
+            #print self.dataMan.get_FDF_peak_params_byindx(indx)
+            print self.dataMan.get_thin_qumodel_byindx(indx)
+            #errStr = "The action '%s' is not yet supported." % resultType
+            #tkMessageBox.showinfo("Error", errStr)
             return
         
         # Grid the plot in the visualisation window
@@ -676,15 +682,15 @@ class ResultsFrame(tk.Frame):
 
         # Action frame -------------------------------------------------------#
         self.title2Lab = tk.Label(self, justify="center", anchor="nw",
-                                  text="Actions")
+                                  text="Plotting Actions:")
         self.title2Lab.grid(row=0, column=1, columnspan=2, padx=5, pady=3,
                             sticky="EW")
         # Sumary page
         self.act1Lab = tk.Label(self, justify="left",
-                                text="Show the values and uncertainties")
+                                text="Show polarised intensity cutout image")
         self.act1Lab.grid(row=1, column=1, padx=5, pady=3, sticky="W")
         self.act1Btn = ttk.Button(self, text="Go",
-                                  command=lambda action="show_values" :
+                                  command=lambda action="plot_stampP" :
                                   self._handlerButtonPress(action))
         self.act1Btn.grid(row=1, column=2, padx=5, pady=2,sticky="NW")
         # Postage stamp images
@@ -692,7 +698,7 @@ class ResultsFrame(tk.Frame):
                                 text="Show Stokes I cutout image")
         self.act2Lab.grid(row=2, column=1, padx=5, pady=3, sticky="W")
         self.act2Btn = ttk.Button(self, text="Go",
-                                  command=lambda action="plot_cutouts" :
+                                  command=lambda action="plot_stampI" :
                                   self._handlerButtonPress(action))
         self.act2Btn.grid(row=2, column=2, padx=5, pady=2,sticky="NW")        
         # Stokes IQU spectra
@@ -1091,9 +1097,12 @@ class SingleFigFrame(tk.Frame):
         elif resultType=="plot_clean_fdf":
             titleStr = "Clean FDF and CC spectrum"
             fig = plotCleanFDF(self.dataMan, indx)
-        elif resultType=="plot_cutouts":
-            titleStr = "Stokes I postage stamp image"
+        elif resultType=="plot_stampI":
+            titleStr = "Stokes I postage stamp image (channel 1)"
             fig = plotStampI(self.dataMan, indx)
+        elif resultType=="plot_stampP":
+            titleStr = "Polarised intensity P postage stamp image (channel 1)"
+            fig = plotStampP(self.dataMan, indx)
         else:
             return
         
