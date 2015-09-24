@@ -5,13 +5,13 @@
 #                                                                             #
 # PURPOSE:  Functions for operating on python record arrays.                  #
 #                                                                             #
-# MODIFIED: 19-May-2015 by C. Purcell                                         #
+# MODIFIED: 24-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
 #  pyify                    ... return type converters given type strings     #
 #  irecarray_to_py          ... convert a recarray into a list                #
-#  fields-view              ... return a view of chose fields in a recarray   #
+#  fields-view              ... return a view of chosen fields in a recarray  #
 #                                                                             #
 #=============================================================================#
 

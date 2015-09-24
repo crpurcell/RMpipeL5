@@ -97,3 +97,11 @@ cleanCutoff_sigma double,
 cleanCutoff_Jybm double,
 status int(2)
 );
+
+CREATE TABLE complexMeasures (
+uniqueName varchar(20) PRIMARY KEY,
+complexM1 double,
+complexM2 double,
+complexM3 double,
+status int(2)
+);

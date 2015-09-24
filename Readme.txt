@@ -17,6 +17,7 @@
 ./3_extract_spectra.py testSession/
 ./4_do_RM-synthesis.py testSession/
 ./5_do_RM-clean.py testSession/
+./6_measure_complexity.py testSession/
 ./rmPipeViewer.py
 
 # Note: a '-h' argument after most scripts will print help & usage information.
@@ -30,8 +31,9 @@
 # Pipeline RM and measurements
 * Set flag when RM is detected near edge of spectrum.
 * Create a best-fit RM-thin model and subtract to get residual.
-* Implement complexity measurements based on residuals.
-* Show clean cutoff and complexity thresholds on plots.
+TO BE PLOTTED
+* Implement complexity measurements based on residuals. 
+IN PROGRESS
 
 
 # GUI & interface

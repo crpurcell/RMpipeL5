@@ -10,7 +10,7 @@ __all__ = ['util_RM',
            'util_plotTk',
            'module_spec_extract',
            'module_RM_synthesis',
-           'module_measure_fdf',
+           'module_measure_FDF',
            'module_RM_clean.py',
            'mpfit',
            'normalize']

@@ -36,7 +36,7 @@ from Imports.util_DB import insert_arr_db
 from Imports.util_DB import update_arr_db
 
 from Imports.module_RM_clean import mod_do_RMclean
-from Imports.module_measure_fdf import mod_measure_FDF
+from Imports.module_measure_FDF import mod_measure_FDF
 
 # Constants
 C = 2.99792458e8
@@ -103,7 +103,7 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     LF = open(logFile, "a", 0)
     log_wr(LF, ">>> Beginning RM-clean.")
 
-    # Check that preceeding staps have been done
+    # Check that preceeding steps have been done
     statusFile = sessionPath + "/status.json"
     fail_not_exists(statusFile, "file", LF)
     statusDict = read_dictfile(statusFile)

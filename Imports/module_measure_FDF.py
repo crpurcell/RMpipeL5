@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 #=============================================================================#
 #                                                                             #
-# NAME:     module_measure_fdf.py                                             #
+# NAME:     module_measure_FDF.py                                             #
 #                                                                             #
 # PURPOSE:  Make measurements on a catalogue of Faraday dispersion functions. #
 #                                                                             #

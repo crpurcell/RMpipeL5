@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 10-September-2015 by C. Purcell                                   #
+# MODIFIED: 24-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -35,6 +35,7 @@
 #  twodgaussian         ... return an array containing a 2D Gaussian          #
 #  create_pqu_spectra_RMthin ... return fractional spectra for a thin source  #
 #  create_IQU_spectra_RMthin ... return IQU spectra for a thin source         #
+#  create_pqu_resid_RMthin ... return fractional spectra - a thin component   #
 #                                                                             #
 #=============================================================================#
 
@@ -189,7 +190,8 @@ class PipelineInputs:
         # The Faraday sampling can be forced by existing config options
         fwhmRMSF_radm2 = 2.0 * m.sqrt(3.0) / lambdaSqRange_m2
         if resetPhiSamp:
-            oversampling = float(self.config.get("RMsynthesis", "oversampling"))
+            oversampling = float(self.config.get("RMsynthesis",
+                                                 "oversampling"))
             dPhi_radm2 = fwhmRMSF_radm2 / oversampling
             phiMax_radm2 = m.sqrt(3.0) / dLambdaSqMax_m2
         else:
@@ -255,18 +257,56 @@ class PipelineInputs:
 
 #-----------------------------------------------------------------------------#
 class DataManager:
-    """Class to interface with the database, datasets and results."""
+    """
+    Class to interface with the database, datasets and results.
 
-    def __init__(self, sessionPath):
+    Public methods:
+        indx2name                  ... translate unique name to table row
+        name2indx                  ... translate table row to unique name
+        get_specI_byname           ... return the I spectrum array
+        get_specI_byindx
+        get_modI_byname            ... return the I model array
+        get_modI_byindx
+        get_specQ_byname           ... return the Q spectrum array
+        get_specQ_byindx
+        get_specU_byname           ... return the U spectrum array
+        get_specU_byindx
+        get_RMSF_byname            ... return the complex RMSF array
+        get_RMSF_byindx
+        get_dirtyFDF_byname        ... return the dirty FDF array (complex)
+        get_dirtyFDF_byindx
+        get_cleanFDF_byname        ... return the clean FDF array (complex)
+        get_cleanFDF_byindx
+        get_ccFDF_byname           ... return the clean-component PI FDF array
+        get_ccFDF_byindx
+        get_Imodel_coeffs_byname   ... return the polynomial coefficient
+        get_Imodel_coeffs_byindx
+        get_RMSF_params_byname     ... return the parameters of the RMSF
+        get_RMSF_params_byindx
+        get_FDF_peak_params_byname ... query the DB for params of peak
+        get_FDF_peak_params_byindx
+        get_thin_qumodel_byname    ... return the thin fractional QU model
+        get_thin_qumodel_byindx
+        get_stampI_byname          ... return the I postage stamp data & header
+        get_stampI_byindx
+        get_stampP_byname          ... return the P postage stamp data & header
+        get_stampP_byindx
+        get_database_schema        ... return a dict containing the DB schema
+        query_database             ... run a SQL query on the DB
+        close                      ... close a conection to the DB
+        export_table               ... save a table to disk
+    """
+
+    def __init__(self, sessionPath, calcParms=True):
         self.sessionPath = sessionPath
         self.dbFile =  sessionPath + "/session.sqlite"
         self.pipeInpObj = None
         self.pDict = None
         self.summaryRec = None
         self.tempRec = None
-
+        
         # Load the session inputs
-        self._load_pipeInputs()
+        self._load_pipeInputs(calcParms=calcParms)
         
         # Connect to the database and load a summary table
         conn = sqlite3.connect(self.dbFile)
@@ -275,14 +315,16 @@ class DataManager:
         cursor.close()
         conn.close()
 
-    def _load_pipeInputs(self):
+    def _load_pipeInputs(self, calcParms):
 
         # Create a PipelineInput class, in the process reading in the 
         # pipeline input file and calculating the derived parameters
         inputFile = self.sessionPath + "/inputs.config"
-        self.pipeInpObj = PipelineInputs(inputFile)
-        self.pipeInpObj.calculate_derived_parms(resetPhiSamp=False)
-        self.pDict = self.pipeInpObj.get_flat_dict(includeDerived=True)
+        self.pipeInpObj = PipelineInputs(inputFile, calcParms,
+                                         resetPhiSamp=False)
+        #if calcParms:
+        #    self.pipeInpObj.calculate_derived_parms(resetPhiSamp=False)
+        self.pDict = self.pipeInpObj.get_flat_dict(includeDerived=calcParms)
         
     def _load_summaryTab(self, cursor):
         sql = """
@@ -495,8 +537,9 @@ class DataManager:
         sql += "%s.dPolAngleFit_deg, " % (FDFtable)
         sql += "%s.polAngle0Fit_deg, " % (FDFtable)
         sql += "%s.dPolAngle0Fit_deg, " % (FDFtable)
+        sql += "%s.detectionF, " % (FDFtable)
         sql += "cleanFDFparms.cleanCutoff_sigma, "
-        sql += "cleanFDFparms.cleanCutoff_Jybm, "
+        sql += "cleanFDFparms.cleanCutoff_Jybm, "        
         sql += "spectraParms.coeffPolyIspec "
         sql += "FROM spectraParms INNER JOIN dirtyFDFparms "
         sql += "ON dirtyFDFparms.uniqueName = spectraParms.uniqueName "
@@ -516,11 +559,6 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_FDF_peak_params_byname(uniqueName, doClean)
         
-    def get_thin_qumodel_byindx(self, indx, oversample=False, 
-                                doClean=False):
-        uniqueName = self.indx2name(indx)
-        return self.get_thin_qumodel_byname(uniqueName, oversample, doClean)
-
     def get_thin_qumodel_byname(self, uniqueName, oversample=False, 
                                 doClean=False):
         
@@ -543,10 +581,11 @@ class DataManager:
                                                    pDict["phiPeakPIfit_rm2"])
         return freqArr_Hz, qArr, uArr
 
-    def get_stampI_byindx(self, indx):
+    def get_thin_qumodel_byindx(self, indx, oversample=False, 
+                                doClean=False):
         uniqueName = self.indx2name(indx)
-        return self.get_stampI_byname(uniqueName)
-    
+        return self.get_thin_qumodel_byname(uniqueName, oversample, doClean)
+
     def get_stampI_byname(self, uniqueName):
         dataDir = self.sessionPath + '/OUT'
         dataFile = dataDir +  '/' + uniqueName +  '_specI.fits'
@@ -554,9 +593,9 @@ class DataManager:
         data = pf.getdata(dataFile)[0]
         return data, head
 
-    def get_stampP_byindx(self, indx):
+    def get_stampI_byindx(self, indx):
         uniqueName = self.indx2name(indx)
-        return self.get_stampP_byname(uniqueName)
+        return self.get_stampI_byname(uniqueName)
     
     def get_stampP_byname(self, uniqueName):
         dataDir = self.sessionPath + '/OUT'
@@ -567,6 +606,10 @@ class DataManager:
         dataU = pf.getdata(dataUFile)[0]
         data = np.sqrt(dataQ**2.0+dataU**2.0)        
         return data, head
+    
+    def get_stampP_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_stampP_byname(uniqueName)
     
     def get_database_schema(self):
         conn = sqlite3.connect(self.dbFile)
@@ -1062,3 +1105,18 @@ def create_IQU_spectra_RMthin(freqArr_Hz, fluxI, SI, fracPol, psi0_deg,
 
     return IArr, QArr, UArr
 
+
+#-----------------------------------------------------------------------------#
+def create_pqu_resid_RMthin(qArr, uArr, freqArr_Hz, fracPol, psi0_deg,
+                            RM_radm2):
+    """Subtract a RM-thin component from the fractional q and u data."""
+
+    pModArr, qModArr, uModArr = create_pqu_spectra_RMthin(freqArr_Hz,
+                                                          fracPol,
+                                                          psi0_deg,
+                                                          RM_radm2)
+    qResidArr = qArr - qModArr
+    uResidArr = uArr - uModArr
+    pResidArr = np.sqrt(qResidArr**2.0 + uResidArr**2.0)
+
+    return pResidArr, qResidArr, uResidArr
