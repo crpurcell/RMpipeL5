@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
 #           pipeline session.                                                 #
 #                                                                             #
-# MODIFIED: 19-August-2015 by C. Purcell                                      #
+# MODIFIED: 28-September-2015 by C. Purcell                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -174,11 +174,10 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     if nRows==0:
         log_fail(LF, "Err: query returned zero entries. Exiting.")
     log_wr(LF, "%s rows returned." % nRows)
-
+    
     # RUN THE RM-SYNTHESIS MODULE --------------------------------------------#
     rmsfRec = mod_do_RMsynth(specRec,
-                             specPath,
-                             specPath,
+                             sessionPath,
                              phiArr,
                              weightType=pDict["weightType"],
                              doOverwrite=doOverwrite,
@@ -214,8 +213,7 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     
     # RUN THE FDF MEASUREMENT MODULE------------------------------------------#
     fdfRec = mod_measure_FDF(catRec,
-                             specPath,
-                             lamSqArr_m2,
+                             sessionPath,
                              float(pDict["thresholdSignalPI_sigma"]),
                              dirty=True,
                              LF=LF)

@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-clean on the Faraday dispersion Functions in a         #
 #           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 18-August-2015 by C. Purcell                                      #
+# MODIFIED: 25-September-2015 by C. Purcell                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -29,12 +29,10 @@ from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
 from Imports.util_PPC import read_dictfile
 from Imports.util_PPC import write_dictfile
-
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import select_into_arr
 from Imports.util_DB import insert_arr_db
 from Imports.util_DB import update_arr_db
-
 from Imports.module_RM_clean import mod_do_RMclean
 from Imports.module_measure_FDF import mod_measure_FDF
 
@@ -109,13 +107,13 @@ def run_RM_clean(sessionPath, doOverwrite=False):
     statusDict = read_dictfile(statusFile)
     if int(statusDict["session"])<1:
         log_fail(LF, "Err: Session status file reports session was not " + \
-                     "created successfully.")
+                 "created successfully.")
     if int(statusDict["extract"])<1:
-        log_fail(LF, "Err: Session status file reports spectral extraction " + \
-                     "was not done.")
+        log_fail(LF, "Err: Session status file reports spectral " + \
+                 "extraction was not done.")
     if int(statusDict["rmsynth"])<1:
         log_fail(LF, "Err: Session status file reports RM-synthesis " + \
-                     "was not done.")
+                 "was not done.")
 
     # Read and parse the pipeline input file
     inParmFile = sessionPath + "/inputs.config"
@@ -172,8 +170,7 @@ def run_RM_clean(sessionPath, doOverwrite=False):
 
     # RUN THE RM-CLEAN MODULE ------------------------------------------------#
     cleanRec = mod_do_RMclean(specRec,
-                              specPath,
-                              specPath,
+                              sessionPath,
                               float(pDict["cleanCutoff_sigma"]),
                               int(pDict["maxCleanIter"]),
                               float(pDict["gain"]),
@@ -205,8 +202,7 @@ def run_RM_clean(sessionPath, doOverwrite=False):
          
     # RUN THE FDF MEASUREMENT MODULE------------------------------------------#
     fdfRec = mod_measure_FDF(catRec,
-                             specPath,
-                             lamSqArr_m2,
+                             sessionPath,
                              float(pDict["thresholdSignalPI_sigma"]),
                              dirty=False,
                              LF=LF)

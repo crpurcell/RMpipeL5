@@ -23,20 +23,25 @@ import astropy.io.fits as pf
 from util_PPC import log_fail
 from util_PPC import fail_not_exists
 from util_PPC import log_wr
+from util_PPC import DataManager
 
 # Constants
 C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
-def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
-                    dirty=True, LF=None):
+def mod_measure_FDF(catRec, sessionPath, thresholdSignalPI, dirty=True,
+                    LF=None):
     
     # Default logging to STDOUT
     if LF is None:
-        LF = sys.stdout        
-    fail_not_exists(dataDir, 'directory', LF)
+        LF = sys.stdout
 
+    # Check required directories exist
+    fail_not_exists(sessionPath, 'directory', LF)
+    dataPath = sessionPath + "/OUT"
+    fail_not_exists(dataPath, 'directory', LF)
+    
     # Create a numpy recArray to store RMSF and FDF properties
     dType = [('uniqueName', 'a20'),
              ('phiPeakPIchan_rm2', 'f8'),
@@ -70,6 +75,9 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
              ('status', 'i8')]
     fdfRec = np.zeros(len(catRec), dtype=dType)
 
+    # Create a DataManager object to access the stored data products
+    dataMan = DataManager(sessionPath, calcParms=False)
+    
     # Loop through the catalogue entries
     log_wr(LF, '\nMeasuring the properties of the FDF catalogue entries ...')
     for i in range(len(catRec)):
@@ -79,17 +87,16 @@ def mod_measure_FDF(catRec, dataDir, lamSqArr_m2, thresholdSignalPI,
         try:
             
             # Read in the complex FDF
-            dataFile = dataDir +  '/' + uniqueName +  "_RMSynth.fits"
-            HDULst = pf.open(dataFile, "readonly", memmap=True)
-            if dirty:
-                ext = 3
+            if dirty is False:
+                phiArr, FDF = dataMan.get_cleanFDF_byname(uniqueName)
             else:
-                ext = 4
-            phiArr = HDULst[3].data["phi"]
-            FDFreal = HDULst[ext].data["FDFreal"]
-            FDFimag = HDULst[ext].data["FDFimag"]
-            FDF = (FDFreal + 1j * FDFimag)
+                phiArr, FDF = dataMan.get_dirtyFDF_byname(uniqueName)
 
+            # Read in the frequency array and calculate the lamSqArr
+            freqArr_Hz, weightArr = dataMan.get_freqweight_byname(uniqueName)
+            lamArr_m = C / freqArr_Hz
+            lamSqArr_m2 = np.power(lamArr_m, 2.0)
+        
             # Perform the measurements
             mDict = measure_FDF_parms(FDF,
                                       phiArr,

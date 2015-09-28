@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 24-September-2015 by C. Purcell                                   #
+# MODIFIED: 28-September-2015 by C. Purcell                                   #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -271,14 +271,20 @@ class DataManager:
         get_specQ_byindx
         get_specU_byname           ... return the U spectrum array
         get_specU_byindx
+        get_freqweight_byname      ... return the frequency and weight arrays
+        get_freqweight_byindx
         get_RMSF_byname            ... return the complex RMSF array
         get_RMSF_byindx
         get_dirtyFDF_byname        ... return the dirty FDF array (complex)
         get_dirtyFDF_byindx
+        create_RMSFfits_byname     ... create FITS file to store RM-synth
+        create_RMSFfits_byindx
         get_cleanFDF_byname        ... return the clean FDF array (complex)
         get_cleanFDF_byindx
         get_ccFDF_byname           ... return the clean-component PI FDF array
         get_ccFDF_byindx
+        put_cleanFDF_byname        ... insert a clean FDF into FITS file
+        put_cleanFDF_byindx
         get_Imodel_coeffs_byname   ... return the polynomial coefficient
         get_Imodel_coeffs_byindx
         get_RMSF_params_byname     ... return the parameters of the RMSF
@@ -409,6 +415,19 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_specU_byname(uniqueName)
     
+    def get_freqweight_byname(self, uniqueName):
+        specDir = self.sessionPath + '/OUT'
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "readonly", memmap=True)
+        freqArr_Hz = HDULst[1].data["freq"]
+        weightArr = HDULst[1].data["weight"]
+        HDULst.close()
+        return freqArr_Hz, weightArr
+
+    def get_freqweight_byindx(self, indx):
+        uniqueName = self.indx2name(indx)
+        return self.get_freqweight_byname(uniqueName)
+    
     def get_RMSF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
         dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
@@ -439,6 +458,50 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_dirtyFDF_byname(uniqueName)
 
+    def create_RMSFfits_byname(self, uniqueName, freqArr_Hz, weightArr,
+                               phiSampArr, RMSFArr, phiArr, dirtyFDF):
+        specDir = self.sessionPath + '/OUT'
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        hdu0 = pf.PrimaryHDU(header=pf.Header())
+
+        lamArr_m = C / freqArr_Hz
+        lamSqArr_m2 = np.power(lamArr_m, 2.0)        
+        
+        col1 = pf.Column(name="freq", format="f4", array=freqArr_Hz)
+        col2 = pf.Column(name="lamsq", format="f4", array=lamSqArr_m2)
+        col3 = pf.Column(name="weight", format="f4", array=weightArr)
+        hdu1 = pf.new_table([col1, col2, col3])
+        #hdu1 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            
+        col1 = pf.Column(name="phiSamp", format="f4", array=phiSampArr)
+        col2 = pf.Column(name="RMSFreal", format="f4", array=RMSFArr.real)
+        col3 = pf.Column(name="RMSFimag", format="f4", array=RMSFArr.imag)
+        hdu2 = pf.new_table([col1, col2, col3])
+        #hdu2 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            
+        col1 = pf.Column(name="phi", format="f4", array=phiArr)
+        col2 = pf.Column(name="FDFreal", format="f4", array=dirtyFDF.real)
+        col3 = pf.Column(name="FDFimag", format="f4", array=dirtyFDF.imag)
+        hdu3 = pf.new_table([col1, col2, col3])
+        #hdu3 = pf.BinTableHDU.from_columns([col1, col2, col3])
+
+        col1 = pf.Column(name="CC", format="f4",
+                         array=np.zeros_like(dirtyFDF.real))
+        col2 = pf.Column(name="FDFreal", format="f4",
+                         array=np.zeros_like(dirtyFDF.real))
+        col3 = pf.Column(name="FDFimag", format="f4",
+                         array=np.zeros_like(dirtyFDF.real))
+        hdu4 = pf.new_table([col1, col2, col3])
+        #hdu4 = pf.BinTableHDU.from_columns([col1, col2, col3])
+            
+        hduLst = pf.HDUList([hdu0, hdu1, hdu2, hdu3, hdu4])
+        hduLst.writeto(dataFile, output_verify="fix", clobber=True)
+        hduLst.close()
+
+    def create_RMSFfits_byindx(self, indx, **kwargs):
+        uniqueName = self.indx2name(indx)
+        return self.create_RMSFfits_byname(self, uniqueName, **kwargs)
+        
     def get_cleanFDF_byname(self, uniqueName):
         specDir = self.sessionPath + '/OUT'
         dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
@@ -466,6 +529,21 @@ class DataManager:
         uniqueName = self.indx2name(indx)
         return self.get_ccFDF_byname(uniqueName)
 
+    def put_cleanFDF_byname(self, uniqueName, CC=None, cleanFDF=None):
+        specDir = self.sessionPath + '/OUT'
+        dataFile = specDir +  '/' + uniqueName +  '_RMSynth.fits'
+        HDULst = pf.open(dataFile, "update", memmap=True)
+        if CC is not None:
+            HDULst[4].data["CC"] = np.abs(CC)
+        if cleanFDF is not None:
+            HDULst[4].data["FDFreal"] = cleanFDF.real
+            HDULst[4].data["FDFimag"] = cleanFDF.imag
+        HDULst.close()
+        
+    def put_cleanFDF_byindx(self, uniqueName, **kwargs):
+        uniqueName = self.indx2name(indx)
+        put_cleanFDF_byname(self, uniqueName, **kwargs)
+        
     def get_Imodel_coeffs_byname(self, uniqueName):
         # Connect to the database and fetch the parameters
         conn = sqlite3.connect(self.dbFile)

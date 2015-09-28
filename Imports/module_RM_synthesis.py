@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 04-Sep-2015 by C. Purcell                                         #
+# MODIFIED: 28-September-2015 by C. Purcell                                   #
 #                                                                             #
 # TODO:                                                                       #
 #   * If doOverwrite is not set, read and return the existing result          #
@@ -21,6 +21,7 @@ from util_PPC import fail_not_exists
 from util_PPC import log_wr
 from util_PPC import log_fail
 from util_PPC import poly5
+from util_PPC import DataManager
 from util_RM import do_rmsynth
 
 import astropy.io.fits as pf
@@ -30,18 +31,18 @@ C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
-def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
-                   weightType='Variance', doOverwrite=False, LF=None):
-
+def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
+                   doOverwrite=False, LF=None):
+    
     # Default logging to STDOUT
     if LF is None:
         LF = sys.stdout
         
-    # Check the data directorys exist
-    fail_not_exists(dataInDir, 'directory', LF)
-    if not os.path.exists(outDataDir):
-        os.mkdir(outDataDir)
-
+    # Check required directories exist
+    fail_not_exists(sessionPath, 'directory', LF)
+    dataPath = sessionPath + "/OUT"
+    fail_not_exists(dataPath, 'directory', LF)
+    
     # Create a recArray to store RMSF and FDF properties
     dType = [('uniqueName', 'a20'),
              ('weightType', 'a20'),
@@ -54,33 +55,24 @@ def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
              ('status', 'i8')]
     rmsfRec = np.zeros(len(specRec), dtype=dType)
         
+    # Create a DataManager object to access the stored data products
+    dataMan = DataManager(sessionPath, calcParms=False)
+    
     # Loop through the catalogue entries
     log_wr(LF, '\nPerforming RM-synthesis on the catalogue entries ...')
     for i in range(len(specRec)):
-        
-        log_wr(LF, "\nProcessing entry %d: '%s'." %
-               (i+1, specRec[i]['uniqueName']))
+        uniqueName = specRec[i]['uniqueName']
+        log_wr(LF, "\nProcessing entry %d: '%s'." %(i+1, uniqueName))
         
         try:
             
             # Read in the I-model, Q & U spectra & noise spectra
-            uniqueName = specRec[i]['uniqueName']
-            dataFile = dataInDir +  '/' + uniqueName +  '_specI.fits'
-            HDULst = pf.open(dataFile, "readonly", memmap=True)
-            freqArr_Hz = HDULst[2].data["freq"]
-            rmsIArr_Jy = HDULst[2].data["rms"]
-            modIArr_Jy = HDULst[2].data["model"]
-            HDULst.close()
-            dataFile = dataInDir +  '/' + uniqueName +  '_specQ.fits'
-            HDULst = pf.open(dataFile, "readonly", memmap=True)
-            QArr_Jy = HDULst[2].data["src"]
-            rmsQArr_Jy = HDULst[2].data["rms"]
-            HDULst.close()
-            dataFile = dataInDir +  '/' + uniqueName +  '_specU.fits'
-            HDULst = pf.open(dataFile, "readonly", memmap=True)
-            UArr_Jy = HDULst[2].data["src"]
-            rmsUArr_Jy = HDULst[2].data["rms"]
-            HDULst.close()
+            freqArr_Hz, IArr_Jy, rmsIArr_Jy = \
+                        dataMan.get_specI_byname(uniqueName)
+            dummy, modIArr_Jy = \
+                   dataMan.get_modI_byname(uniqueName, getStored=True)
+            dummy, QArr_Jy, rmsQArr_Jy = dataMan.get_specQ_byname(uniqueName)
+            dummy, UArr_Jy, rmsUArr_Jy = dataMan.get_specU_byname(uniqueName)
             PIArr_Jy = np.sqrt( np.power(QArr_Jy, 2.0) +
                                 np.power(UArr_Jy, 2.0) )
             rmsSpecQUAvg = (rmsQArr_Jy + rmsUArr_Jy)/2.0
@@ -119,41 +111,8 @@ def mod_do_RMsynth(specRec, dataInDir, outDataDir, phiArr,
             log_wr(LF, '> Dirty FDF recast into input units.')
 
             # Create a FITS file to store the RM-synthesis results
-            outFits = outDataDir + '/' + specRec[i]['uniqueName'] + \
-                      "_RMSynth.fits"
-            hdu0 = pf.PrimaryHDU(header=pf.Header())
-            
-            col1 = pf.Column(name="freq", format="f4", array=freqArr_Hz)
-            col2 = pf.Column(name="lamsq", format="f4", array=lamSqArr_m2)
-            col3 = pf.Column(name="weight", format="f4", array=weightArr)
-            hdu1 = pf.new_table([col1, col2, col3])
-            #hdu1 = pf.BinTableHDU.from_columns([col1, col2, col3])
-            
-            col1 = pf.Column(name="phiSamp", format="f4", array=phiSampArr)
-            col2 = pf.Column(name="RMSFreal", format="f4", array=RMSFArr.real)
-            col3 = pf.Column(name="RMSFimag", format="f4", array=RMSFArr.imag)
-            hdu2 = pf.new_table([col1, col2, col3])
-            #hdu2 = pf.BinTableHDU.from_columns([col1, col2, col3])
-            
-            col1 = pf.Column(name="phi", format="f4", array=phiArr)
-            col2 = pf.Column(name="FDFreal", format="f4", array=dirtyFDF.real)
-            col3 = pf.Column(name="FDFimag", format="f4", array=dirtyFDF.imag)
-            hdu3 = pf.new_table([col1, col2, col3])
-            #hdu3 = pf.BinTableHDU.from_columns([col1, col2, col3])
-
-            col1 = pf.Column(name="CC", format="f4",
-                             array=np.zeros_like(dirtyFDF.real))
-            col2 = pf.Column(name="FDFreal", format="f4",
-                             array=np.zeros_like(dirtyFDF.real))
-            col3 = pf.Column(name="FDFimag", format="f4",
-                             array=np.zeros_like(dirtyFDF.real))
-            hdu4 = pf.new_table([col1, col2, col3])
-            #hdu4 = pf.BinTableHDU.from_columns([col1, col2, col3])
-            
-            hduLst = pf.HDUList([hdu0, hdu1, hdu2, hdu3, hdu4])
-            hduLst.writeto(outFits, output_verify="fix", clobber=True)
-            hduLst.close()
-
+            dataMan.create_RMSFfits_byname(uniqueName, freqArr_Hz, weightArr,
+                                   phiSampArr, RMSFArr, phiArr, dirtyFDF)
             log_wr(LF, '> Dirty FDF saved to FITS file.')
             
         except Exception:
