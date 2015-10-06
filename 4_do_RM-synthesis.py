@@ -8,7 +8,7 @@
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
 #           pipeline session.                                                 #
 #                                                                             #
-# MODIFIED: 28-September-2015 by C. Purcell                                   #
+# MODIFIED: 29-September-2015 by C. Purcell                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -148,10 +148,11 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     fail_not_exists(dataPath, "directory", LF)
     
     # Get the frequency vector from the text file
-    inFreqFile = dataPath + "/freqs_Hz.txt"
-    fail_not_exists(inFreqFile, "file", LF)
-    freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
-    lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
+    #inFreqFile = dataPath + "/freqs_Hz.txt"
+    #fail_not_exists(inFreqFile, "file", LF)
+    #freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
+    #lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
+    lamSqArr_m2 = pDict["lambdaSqArr_m2"]
     
     # Connect to the database
     dbFile = sessionPath + "/session.sqlite"

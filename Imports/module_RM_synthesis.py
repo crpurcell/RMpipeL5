@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 28-September-2015 by C. Purcell                                   #
+# MODIFIED: 29-September-2015 by C. Purcell                                   #
 #                                                                             #
 # TODO:                                                                       #
 #   * If doOverwrite is not set, read and return the existing result          #
@@ -56,7 +56,8 @@ def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
     rmsfRec = np.zeros(len(specRec), dtype=dType)
         
     # Create a DataManager object to access the stored data products
-    dataMan = DataManager(sessionPath, calcParms=False)
+    dataMan = DataManager(sessionPath, calcParms=True)
+    pDict = dataMan.pDict
     
     # Loop through the catalogue entries
     log_wr(LF, '\nPerforming RM-synthesis on the catalogue entries ...')
@@ -91,8 +92,10 @@ def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
             log_wr(LF, '> Q & U data divided by the Stokes I model.')
         
             # Calculate the lambda sampling from the frequency array
-            lamArr_m = C / freqArr_Hz
-            lamSqArr_m2 = np.power(lamArr_m, 2.0)
+            #lamArr_m = C / freqArr_Hz
+            #lamSqArr_m2 = np.power(lamArr_m, 2.0)
+            #lamSqArr_m2 = pDict["lambdaSqArr_m2"]
+            lamSqArr_m2 = pDict["lambdaSqArr_m2"]
         
             # Perform RM-synthesis on the spectrum
             # Returned dirty FDF has amplitude expressed as polarised fraction
