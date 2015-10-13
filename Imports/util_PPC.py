@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy and astropy.                                   #
 #                                                                             #
-# MODIFIED: 29-September-2015 by C. Purcell                                   #
+# MODIFIED: 13-October-2015 by C. Purcell                                     #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -112,7 +112,11 @@ class PipelineInputs:
         self.config.set("Thresholds", "thresholdPolBias_sigma", "5.0")
         self.config.set("Thresholds", "thresholdSignalPI_sigma", "8.0")
         self.config.set("Thresholds", "thresholdDoClean_sigma", "3.0")
-        self.config.set("Thresholds", "phiMom2Thresh_sigma", "1.5")
+        
+        self.config.add_section("Complexity")
+        self.config.set("Complexity", "threshC1", "3.0")
+        self.config.set("Complexity", "threshC2", "3.0")
+        self.config.set("Complexity", "threshC3", "3.0")
         
     def read_file(self):
         """
@@ -244,7 +248,9 @@ class PipelineInputs:
                           "thresholdPolBias_sigma",
                           "thresholdSignalPI_sigma",
                           "thresholdDoClean_sigma",
-                          "phiMom2Thresh_sigma"]
+                          "threshC1",
+                          "threshC2",
+                          "threshC3"]
         pDict = self.get_flat_dict(includeDerived=False)
         keys = pDict.keys()
         missingLst = [x for x in requiredKeyLst if x not in keys]
@@ -328,8 +334,10 @@ class DataManager:
         inputFile = self.sessionPath + "/inputs.config"
         self.pipeInpObj = PipelineInputs(inputFile, calcParms,
                                          resetPhiSamp=False)
-        #if calcParms:
-        #    self.pipeInpObj.calculate_derived_parms(resetPhiSamp=False)
+        missingLst = self.pipeInpObj.inparm_verify()
+        if len(missingLst)>0:
+            print "Err: Required input parameters missing. - %s" % missingLst
+            sys.exit(0)
         self.pDict = self.pipeInpObj.get_flat_dict(includeDerived=calcParms)
         
     def _load_summaryTab(self, cursor):
@@ -621,7 +629,7 @@ class DataManager:
         sql += "spectraParms.coeffPolyIspec "
         sql += "FROM spectraParms INNER JOIN dirtyFDFparms "
         sql += "ON dirtyFDFparms.uniqueName = spectraParms.uniqueName "
-        sql += "INNER JOIN cleanFDFparms "
+        sql += "LEFT JOIN cleanFDFparms "
         sql += "ON cleanFDFparms.uniqueName = spectraParms.uniqueName "
         sql += "WHERE spectraParms.uniqueName='%s'" % (uniqueName)
         resultArr = self.query_database(sql, buffer=False)

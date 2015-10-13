@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Make measurements on a catalogue of Faraday dispersion functions. #
 #                                                                             #
-# MODIFIED: 18-Aug-2015 by C. Purcell                                         #
+# MODIFIED: 13-October-2015 by C. Purcell                                     #
 #                                                                             #
 # TODO:                                                                       #
 #  * Set a flag if the peak is within RMSF_FWHM/2 of the FDF edge.            #
@@ -30,8 +30,7 @@ C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
-def mod_measure_FDF(catRec, sessionPath, thresholdSignalPI, dirty=True,
-                    LF=None):
+def mod_measure_FDF(catRec, sessionPath, dirty=True, LF=None):
     
     # Default logging to STDOUT
     if LF is None:
@@ -77,6 +76,7 @@ def mod_measure_FDF(catRec, sessionPath, thresholdSignalPI, dirty=True,
 
     # Create a DataManager object to access the stored data products
     dataMan = DataManager(sessionPath, calcParms=False)
+    thresholdSignalPI = float(dataMan.pDict["thresholdSignalPI_sigma"])
     
     # Loop through the catalogue entries
     log_wr(LF, '\nMeasuring the properties of the FDF catalogue entries ...')

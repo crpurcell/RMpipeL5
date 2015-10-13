@@ -6,9 +6,9 @@
 # USAGE:    ./4_do_RM-synthesis.py PATH/TO/SESSION                            #
 #                                                                             #
 # PURPOSE:  Perform RM-synthesis on the extracted spectra in the current      #
-#           pipeline session.                                                 #
+#           POSSUM pipeline session.                                          #
 #                                                                             #
-# MODIFIED: 29-September-2015 by C. Purcell                                   #
+# MODIFIED: 13-October-2015 by C. Purcell                                     #
 #                                                                             #
 #=============================================================================#
 
@@ -22,11 +22,9 @@ import math as m
 import numpy as np
 import sqlite3
 
-from Imports.util_PPC import PipelineInputs
 from Imports.util_PPC import fail_not_exists
 from Imports.util_PPC import log_wr
 from Imports.util_PPC import log_fail
-from Imports.util_PPC import load_vector_fail
 from Imports.util_PPC import read_dictfile
 from Imports.util_PPC import write_dictfile
 
@@ -51,7 +49,7 @@ register_sqlite3_numpy_dtypes()
 #-----------------------------------------------------------------------------#
 def main():
     """
-    Start the run_RM_synthesis function if called from the command line.
+    Run RM-synthesis on all of the sources in the requested session.
     """
     
     # Help string to be shown using the -h option
@@ -82,16 +80,8 @@ def main():
                         help="Overwrite old RM-synthesis results")
     args = parser.parse_args()
     sessionPath = args.sessionPath[0]
-    doOverwrite = args.doOverwrite
-
-    # Call the RM-synthesis function
-    run_RM_synthesis(sessionPath, doOverwrite)
-
-
-#-----------------------------------------------------------------------------#
-def run_RM_synthesis(sessionPath, doOverwrite=False):
-    
     sessionPath = sessionPath.rstrip("/")
+    doOverwrite = args.doOverwrite
     
     # Check the required directory structure exists or exit
     fail_not_exists(sessionPath, "directory")
@@ -113,47 +103,6 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
         log_fail(LF, "Err: Session status file reports spectral extraction " + \
                      "was not done.")
 
-    # Read and parse the pipeline input file
-    inParmFile = sessionPath + "/inputs.config"
-    fail_not_exists(inParmFile, "file", LF)
-    try:
-        pipeInpObj = PipelineInputs(inParmFile)
-        log_wr(LF, "Successfully parsed the input parameter file.")
-    except Exception:
-        log_wr(LF, "Err: Failed to parse the input parameter file.")
-        log_fail(LF, traceback.format_exc())
-
-    # Verify that the parameter file has all the correct entries
-    missingLst = pipeInpObj.inparm_verify()
-    if len(missingLst)>0:
-        log_fail(LF, "Err: Required input parameters missing. - %s" %
-                 missingLst)
-    else:
-        log_wr(LF, "All required input parameters present.")
-
-    # Calculate the Faraday depth sampling etc.
-    log_wr(LF, "Calculating the Faraday depth sampling")
-    pipeInpObj.calculate_derived_parms(resetPhiSamp=False)
-    pDict = pipeInpObj.get_flat_dict(includeDerived=True)
-    phiArr = pDict["phiArr_radm2"]
-    log_wr(LF, "> PhiArr = %.2f to %.2f by %.2f" % (phiArr[0], phiArr[-1],
-                                                   float(pDict["dPhi_radm2"])))
-        
-    # Check that the input/output data directory exists
-    specPath = sessionPath + "/OUT"
-    fail_not_exists(specPath, "directory", LF)
-    
-    # Check that the specified dataset exists
-    dataPath = pDict["dataPath"].rstrip("/")
-    fail_not_exists(dataPath, "directory", LF)
-    
-    # Get the frequency vector from the text file
-    #inFreqFile = dataPath + "/freqs_Hz.txt"
-    #fail_not_exists(inFreqFile, "file", LF)
-    #freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
-    #lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
-    lamSqArr_m2 = pDict["lambdaSqArr_m2"]
-    
     # Connect to the database
     dbFile = sessionPath + "/session.sqlite"
     try:
@@ -164,7 +113,7 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
         log_wr(LF, "Err: Failed to connect to '%s'." % dbFile)
         log_fail(LF, traceback.format_exc())
         
-    # Load the spectral parameter table into memory
+    # Load necessary columns from the spectral parameter table into a recarray
     sql = """
     SELECT uniqueName, coeffPolyIspec, rmsMedQUAvg_Jybm, extractStatus
     FROM spectraParms
@@ -179,17 +128,18 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     # RUN THE RM-SYNTHESIS MODULE --------------------------------------------#
     rmsfRec = mod_do_RMsynth(specRec,
                              sessionPath,
-                             phiArr,
-                             weightType=pDict["weightType"],
                              doOverwrite=doOverwrite,
                              LF=LF)
 
-    # Write the RMSF parameters to the database
+    # Write the RM-synthesis parameters to the database
+    # [uniqueName, weightType, lam0Sq_m2, freq0_Hz, nPhiChan, fwhmRMSF,
+    #  deltaPhiChan_rm2, phiCentre_rm2, status]
     cursor.execute("DELETE FROM dirtyFDFparms")
     insert_arr_db(cursor, rmsfRec, "dirtyFDFparms")
     conn.commit()
     log_wr(LF, "Database updated with RMSF parameters.")
-    
+
+    # Feedback to user
     msg = "\n" + "-"*80 + "\n"
     msg += "Proceeding to measure the properties of the FDFs."
     msg = "\n" + "-"*80 + "\n"
@@ -215,7 +165,6 @@ def run_RM_synthesis(sessionPath, doOverwrite=False):
     # RUN THE FDF MEASUREMENT MODULE------------------------------------------#
     fdfRec = mod_measure_FDF(catRec,
                              sessionPath,
-                             float(pDict["thresholdSignalPI_sigma"]),
                              dirty=True,
                              LF=LF)
     

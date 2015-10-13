@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 29-September-2015 by C. Purcell                                   #
+# MODIFIED: 13-October-2015 by C. Purcell                                     #
 #                                                                             #
 # TODO:                                                                       #
 #   * If doOverwrite is not set, read and return the existing result          #
@@ -31,17 +31,18 @@ C = 2.99792458e8
 
 
 #-----------------------------------------------------------------------------#
-def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
-                   doOverwrite=False, LF=None):
+def mod_do_RMsynth(specRec, sessionPath, doOverwrite=False, LF=None):
     
     # Default logging to STDOUT
     if LF is None:
         LF = sys.stdout
         
-    # Check required directories exist
+    # Check required directories and files exist
     fail_not_exists(sessionPath, 'directory', LF)
     dataPath = sessionPath + "/OUT"
     fail_not_exists(dataPath, 'directory', LF)
+    inParmFile = sessionPath + "/inputs.config"
+    fail_not_exists(inParmFile, "file", LF)
     
     # Create a recArray to store RMSF and FDF properties
     dType = [('uniqueName', 'a20'),
@@ -55,9 +56,12 @@ def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
              ('status', 'i8')]
     rmsfRec = np.zeros(len(specRec), dtype=dType)
         
-    # Create a DataManager object to access the stored data products
+    # Create a DataManager to access the stored data and inputs
+    # Assumption: all data have the same frequency sampling
     dataMan = DataManager(sessionPath, calcParms=True)
-    pDict = dataMan.pDict
+    phiArr = dataMan.pDict["phiArr_radm2"]
+    weightType = dataMan.pDict["weightType"]
+    lamSqArr_m2 = dataMan.pDict["lambdaSqArr_m2"]
     
     # Loop through the catalogue entries
     log_wr(LF, '\nPerforming RM-synthesis on the catalogue entries ...')
@@ -91,17 +95,10 @@ def mod_do_RMsynth(specRec, sessionPath, phiArr, weightType='Variance',
             specPIfrac = PIArr_Jy / modIArr_Jy
             log_wr(LF, '> Q & U data divided by the Stokes I model.')
         
-            # Calculate the lambda sampling from the frequency array
-            #lamArr_m = C / freqArr_Hz
-            #lamSqArr_m2 = np.power(lamArr_m, 2.0)
-            #lamSqArr_m2 = pDict["lambdaSqArr_m2"]
-            lamSqArr_m2 = pDict["lambdaSqArr_m2"]
-        
             # Perform RM-synthesis on the spectrum
             # Returned dirty FDF has amplitude expressed as polarised fraction
-            tmp = do_rmsynth(specQfrac, specUfrac, lamSqArr_m2, phiArr, 
-                             weightArr)
-            dirtyFDF, [phiSampArr, RMSFArr], lam0Sq, fwhmRMSF = tmp
+            dirtyFDF, [phiSampArr, RMSFArr], lam0Sq, fwhmRMSF = \
+               do_rmsynth(specQfrac, specUfrac, lamSqArr_m2, phiArr, weightArr)
             log_wr(LF,'> RM-synthesis completed on Q/I and U/I spectra.')
 
             # Determine the Stokes I value at lam0Sq from the I polynomial

@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Perform Hogbom RM-clean on dirty FDFs in the PPC.                 #
 #                                                                             #
-# MODIFIED: 25-September-2015 by C. Purcell                                   #
+# MODIFIED: 13-October-2015 by C. Purcell                                     #
 #                                                                             #
 # TODO:                                                                       #
 #  * Catch errors in non-fatal way                                            #
@@ -24,6 +24,7 @@ from util_PPC import log_wr
 from util_PPC import log_fail
 from util_PPC import fail_not_exists
 from util_PPC import DataManager
+
 from util_RM import do_rmclean
 
 # Constants
@@ -41,6 +42,8 @@ def mod_do_RMclean(specRec, sessionPath, cleanCutoff_sigma=5,
     fail_not_exists(sessionPath, 'directory', LF)
     dataPath = sessionPath + "/OUT"
     fail_not_exists(dataPath, 'directory', LF)
+    inParmFile = sessionPath + "/inputs.config"
+    fail_not_exists(inParmFile, "file", LF)
     
     # Create a recArray to store the clean properties
     dType = [('uniqueName', 'a20'),
@@ -51,6 +54,9 @@ def mod_do_RMclean(specRec, sessionPath, cleanCutoff_sigma=5,
     
     # Create a DataManager object to access the stored data products
     dataMan = DataManager(sessionPath, calcParms=False)
+    cleanCutoff_sigma = float(dataMan.pDict["cleanCutoff_sigma"])
+    maxIter = int(dataMan.pDict["maxCleanIter"])
+    gain = float(dataMan.pDict["gain"])
     
     # Loop through the catalogue entries
     log_wr(LF, '\nPerforming RM-clean on the catalogue entries ...')
