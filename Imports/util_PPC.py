@@ -5,14 +5,16 @@
 #                                                                             #
 # PURPOSE:  Helper functions for the POSSUM pipeline.                         #
 #                                                                             #
-# REQUIRED: Requires the numpy and astropy.                                   #
+# REQUIRED: Requires numpy and astropy.                                       #
 #                                                                             #
-# MODIFIED: 13-October-2015 by C. Purcell                                     #
+# MODIFIED: 12-November-2015 by C. Purcell                                    #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
 #  PipelineInputs       ... class to contain the pipeline inputs and file     #
 #  DataManager          ... class to interface with the database and data     #
+#  PlotParms            ... class containing query and plotting parameters    #
+#  cleanup_str_input    ... condense multiple newlines and spaces in a string #
 #  config_read          ... read a key=value format text file                 #
 #  deg2dms              ... convert decimal degrees to dms string             #
 #  fail_not_exists      ... check for dir/file existence, exit if missing     #
@@ -36,6 +38,30 @@
 #  create_pqu_spectra_RMthin ... return fractional spectra for a thin source  #
 #  create_IQU_spectra_RMthin ... return IQU spectra for a thin source         #
 #  create_pqu_resid_RMthin ... return fractional spectra - a thin component   #
+#                                                                             #
+#=============================================================================#
+#                                                                             #
+# The MIT License (MIT)                                                       #
+#                                                                             #
+# Copyright (c) 2015 Cormac R. Purcell                                        #
+#                                                                             #
+# Permission is hereby granted, free of charge, to any person obtaining a     #
+# copy of this software and associated documentation files (the "Software"),  #
+# to deal in the Software without restriction, including without limitation   #
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,    #
+# and/or sell copies of the Software, and to permit persons to whom the       #
+# Software is furnished to do so, subject to the following conditions:        #
+#                                                                             #
+# The above copyright notice and this permission notice shall be included in  #
+# all copies or substantial portions of the Software.                         #
+#                                                                             #
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  #
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,    #
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE #
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER      #
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING     #
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER         #
+# DEALINGS IN THE SOFTWARE.                                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -200,7 +226,8 @@ class PipelineInputs:
             phiMax_radm2 = m.sqrt(3.0) / dLambdaSqMax_m2
         else:
             dPhi_radm2 = float(self.config.get("RMsynthesis", "dPhi_radm2"))
-            phiMax_radm2 = float(self.config.get("RMsynthesis", "phiMax_radm2"))
+            phiMax_radm2 = float(self.config.get("RMsynthesis", 
+                                                 "phiMax_radm2"))
 
         # Force the minimum phiMax
         phiMax_radm2 = max(phiMax_radm2, 600.0)
@@ -705,34 +732,151 @@ class DataManager:
         conn.close()
         return descDict
 
-    def query_database(self, sql, buffer=True):
+    def query_database(self, sql, buffer=True, doCommit=False):
         conn = sqlite3.connect(self.dbFile)
         cursor = conn.cursor()
         resultArr = None
         resultArr = select_into_arr(cursor, sql)
         if buffer:
             self.tempRec = resultArr
+        if doCommit:
+            conn.commit()
         cursor.close()
         conn.close()
-        return resultArr
-    
+        return resultArr    
+
     def close(self):
         cursor.close()
         conn.close()
 
-    def export_table(self, tableName, format="CSV", outDir="."):
-        sql = "SELECT * FROM %s" % tableName
-        resultArr = self.query_database(sql, buffer=False)
+    def export_table(self, tableName, format="CSV", outDir=".", 
+                     saveBuffer=False):
+        if saveBuffer is False:
+            sql = "SELECT * FROM %s" % tableName
+            self.query_database(sql, buffer=True)
         outFileName = outDir + "/" +tableName + ".csv"
         with open(outFileName, "wb") as FH:
             writer = csv.writer(FH)
-            colNames = resultArr.dtype.names
+            colNames = self.tempRec.dtype.names
             writer.writerow(colNames)
-            writer.writerows(resultArr)
+            writer.writerows(self.tempRec)
         FH.close()
         print "Table '%s' written to file:\n'%s'" % (tableName, outFileName)
 
 
+#-----------------------------------------------------------------------------#
+class PlotParms:
+    """
+    Class to store plotting parameters and queries.
+    """
+    
+    def __init__(self, queryFile=None):
+        self.configDict = {}
+        self.queryLst = []
+        self.queryLabLst = []
+        loadDefaults = False
+        if queryFile is not None:
+            try:
+                self.configDict = parse_queryfile(queryFile)
+                self.queryLst = self.configDict.pop('QUERY')
+                self.queryLabLst = self.configDict.pop('QLABEL')
+            except Exception:
+                loadDefaults = True
+        if loadDefaults:
+            self._setup_defaults()
+                
+    def _setup_defaults(self):
+        self.configDict["DBFILE"] = ""
+        self.configDict["TYPE"] = "Histogram"
+        self.configDict["DOLOGX"] = "0"
+        self.configDict["DOLOGY"] = "0"
+        self.configDict["NBINS"] = "10"
+        self.configDict["ZPOWER"] = "1.0"
+        self.configDict["XDATAMIN"] = ""
+        self.configDict["XDATAMAX"] = ""
+        self.configDict["YDATAMIN"] = ""
+        self.configDict["YDATAMAX"] = ""
+        self.configDict["ZDATAMIN"] = ""
+        self.configDict["ZDATAMAX"] = ""
+        self.configDict["XLABEL"] = ""
+        self.configDict["YLABEL"] = ""
+        self.configDict["ZLABEL"] = ""
+        self.configDict["TITLE"] = ""
+        self.queryLst = []
+        self.queryLabLst = ["Query 1", "Query 2", "Query 3", "Query 4"]
+
+        
+#-----------------------------------------------------------------------------#
+def parse_queryfile(filename):
+    """Parse a file containing the SQL queries and key=value pairs."""
+    
+    configDict = dict()              # Dictionary to hold keyword-value pairs
+    queryLst=[]                      # List to hold queries
+    queryLabLst = []                 # List to hold legend labels
+    CONFIGFILE = open(filename, "r")
+
+    # Compile a few useful regular expressions
+    spaces = re.compile('\s+')
+    comma_and_spaces = re.compile(',\s+')
+    comma_or_space = re.compile('[\s|,]')
+    brackets = re.compile('[\[|\]\(|\)|\{|\}]')
+    comment = re.compile('#.*')
+    quotes = re.compile('\'[^\']*\'')
+    key_val = re.compile('^.+=.+')
+
+    # Read in the input file, line by line
+    for line in CONFIGFILE:
+        line = line.rstrip("\n\r")
+
+        # Filter for comments and blank lines
+        if not comment.match(line) and key_val.match(line):
+
+            # Weed out internal comments & split on 1st '='
+            line = comment.sub('',line)
+            (keyword, value) = line.split('=',1)
+
+            # If the line contains a value            
+            keyword = keyword.strip()          # kill external whitespace
+            keyword = spaces.sub('', keyword)  # kill internal whitespaces
+            value = value.strip()              # kill external whitespace
+            value = spaces.sub(' ', value)     # shrink internal whitespace
+            value = comma_and_spaces.sub(',', value) # kill ambiguous spaces
+
+            # Separate out the queries 
+            if value:
+                if (keyword=='QUERY'):
+                    queryLst.append(value)
+                elif (keyword=='QLABEL'):
+                    queryLabLst.append(value)
+                else:                
+                    configDict[keyword] = value
+            configDict['QUERY'] = queryLst
+            configDict['QLABEL'] = queryLabLst
+
+    CONFIGFILE.close()
+    
+    return configDict
+        
+        
+
+
+#-----------------------------------------------------------------------------#
+def cleanup_str_input(textBlock):
+    
+    # Compile a few useful regular expressions
+    spaces = re.compile(r"[^\S\r\n]+")
+    newlines = re.compile(r"\n+")
+    rets = re.compile(r"\r+")
+
+    # Strip multiple spaces etc
+    textBlock = textBlock.strip()
+    textBlock = rets.sub('\n', textBlock)
+    textBlock = newlines.sub('\n', textBlock)
+    textBlock = spaces.sub(' ', textBlock)
+
+    return textBlock
+
+    
 #-----------------------------------------------------------------------------#
 def config_read(filename, delim='=', doValueSplit=True):
     """
@@ -1206,3 +1350,14 @@ def create_pqu_resid_RMthin(qArr, uArr, freqArr_Hz, fracPol, psi0_deg,
     pResidArr = np.sqrt(qResidArr**2.0 + uResidArr**2.0)
 
     return pResidArr, qResidArr, uResidArr
+
+
+#-----------------------------------------------------------------------------#
+def xfloat(x, default=None):
+
+    if x is None or x is "":
+        return default
+    try:
+        return float(x)
+    except Exception:
+        return default

@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Common function for plotting fits images.                         #
 #                                                                             #
-# MODIFIED: 04-September-2015 by C. Purcell                                   #
+# MODIFIED: 19-November-2015 by C. Purcell                                    #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #

@@ -5,10 +5,13 @@
 #                                                                             #
 # PURPOSE:  Plotting functions for the POSSUM pipeline Tk interface.          #
 #                                                                             #
-# MODIFIED: 10-September-2015 by C. Purcell                                   #
+# MODIFIED: 19-November-2015 by C. Purcell                                    #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
+# xfloat                                                                      #
+# xint                                                                        #
+# filter_range_indx                                                           #
 # tweakAxFormat                                                               #
 # format_ticks                                                                #
 # plot_I_vs_nu_ax                                                             #
@@ -21,6 +24,7 @@
 # gauss                                                                       #
 # plot_dirtyFDF_ax                                                            #
 # plot_cleanFDF_ax                                                            #
+# plot_hist4_ax                                                               #
 #                                                                             #
 # #-------------------------------------------------------------------------# #
 #                                                                             #
@@ -34,6 +38,32 @@
 # plotDirtyFDF                                                                #
 # plotCleanFDF                                                                #
 # plotStampI                                                                  #
+# plotStampP                                                                  #
+# plotSctHstQuery                                                             #
+#                                                                             #
+#=============================================================================#
+#                                                                             #
+# The MIT License (MIT)                                                       #
+#                                                                             #
+# Copyright (c) 2015 Cormac R. Purcell                                        #
+#                                                                             #
+# Permission is hereby granted, free of charge, to any person obtaining a     #
+# copy of this software and associated documentation files (the "Software"),  #
+# to deal in the Software without restriction, including without limitation   #
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,    #
+# and/or sell copies of the Software, and to permit persons to whom the       #
+# Software is furnished to do so, subject to the following conditions:        #
+#                                                                             #
+# The above copyright notice and this permission notice shall be included in  #
+# all copies or substantial portions of the Software.                         #
+#                                                                             #
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  #
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,    #
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE #
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER      #
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING     #
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER         #
+# DEALINGS IN THE SOFTWARE.                                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -45,9 +75,12 @@ import StringIO
 import astropy.io.fits as pf
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
+from matplotlib.patches import Polygon
+from matplotlib.ticker import FuncFormatter
 from matplotlib.figure import Figure
 
 from util_plotFITS import plot_fits_map
+from util_PPC import xfloat
 
 # Alter the default linewidths etc.
 mpl.rcParams['lines.linewidth'] = 1.0
@@ -61,6 +94,35 @@ mpl.rcParams['font.size'] = 12.0
 
 # Constants
 C = 2.99792458e8
+
+
+#-----------------------------------------------------------------------------#
+def xint(x, default=None):
+    if x is None:
+        return default
+    return int(x)
+
+ 
+#-----------------------------------------------------------------------------#
+def filter_range_indx(a, dataMin=None, dataMax=None, filterNans=False):
+    """Return a boolean array [True, ...] where data falls outside of the
+    range [dataMin <= a <= dataMax]."""
+    
+    if filterNans:
+        iNaN = np.zeros_like(a, dtype="bool")
+    else:
+        iNaN = a!=a
+    if dataMin is None:
+        i1 = np.ones_like(a, dtype="bool")
+    else:
+        i1 = a>=dataMin
+        i1+=iNaN
+    if dataMax is None:
+        i2 = np.ones_like(a, dtype="bool")
+    else:
+        i2 = a<=dataMax
+        i2+=iNaN
+    return ~i1+~i2
 
 
 #-----------------------------------------------------------------------------#
@@ -562,6 +624,145 @@ def plot_cleanFDF_ax(ax, phiArr, cleanFDFArr_mJy, ccFDFArr_mJy=None,
     ax.relim()
     ax.autoscale_view()
 
+
+#-----------------------------------------------------------------------------#
+def plot_hist4_ax(ax, popLst, nBins=10, doXlog=False, doYlog=False, styIndx=0,
+                  xMin=None, xMax=None, yMax=None, xLabel="", yLabel="",
+                  title="", legLabLst=[], legLoc="tr", verbose=False):
+    
+    # Format of the histogram lines and shading.
+    # Up to four histograms are supported and two alternative styles
+    edgeColourLst = [['black', 'red', 'blue', 'black'],
+                     ['grey','red', 'blue', 'black']]
+    fillColourLst = [['#dddddd', 'none', 'none', 'none'],
+                     ['none', 'none', 'none', 'none']]
+    hatchStyleLst = [['', '/', '\\', ''],
+                     ['/', '\\', '', '']]
+    histLinewidthLst = [[1.0,1.0,1.0,1.5],
+                        [1.0,1.0,1.0,1.5]]
+    
+    # Translate the legend location code
+    if legLoc not in ["tl", "tr", "bl", "br"]: legLoc = "tr"
+    locTab = {"tl": "upper left", "tr": "upper right",
+              "bl": "lower left", "br": "lower right"}
+    legLoc = locTab[legLoc]
+
+    # Determine the max and min of the ensemble population
+    popEnsemble = np.concatenate(popLst).astype(np.float)
+    xMinData = float(np.nanmin(popEnsemble))      
+    xMaxData = float(np.nanmax(popEnsemble))
+
+    # All valid data must have the same sign for log plots
+    if doXlog:
+        if not (xMinData<0) == (xMaxData<0):
+            print "\nErr: for log axis all data must have the same sign!"
+            return
+    sign = np.sign(popEnsemble)[0]
+    
+    # Calculate the bin edges
+    if doXlog:
+        logBins = np.linspace(m.log10(abs(xMinData)), m.log10(abs(xMaxData)),
+                              int(nBins+1))
+        b = np.power(10.0, logBins) * sign
+    else:
+        b = np.linspace(xMinData, xMaxData, int(nBins+1))
+
+    # Bin the data in each population
+    nLst = []
+    for p in popLst:
+        n, b =  np.histogram(p.astype(np.float), bins = b)
+        n = np.array(n, dtype=np.float)
+        nLst.append(n)
+
+    # Print the binned values to the screen
+    if verbose:
+        print "\n#BIN, COUNTS ..."
+        binCentreArr = b[:-1]+np.diff(b)/2.0
+        for i in range(len(binCentreArr)):
+            print binCentreArr[i],
+            for j in range(len(nLst)):
+                print nLst[j][i],
+            print
+    
+    # Set the Y-axis limits
+    nEnsemble = np.concatenate(nLst)
+    if doYlog:
+        yZeroPt = 0.8
+        yMin = yZeroPt
+        if yMax is None:
+            yMaxData = float(max(nEnsemble))
+            yFac = abs(yMaxData/yZeroPt)
+            yMax = yMaxData*(1+ m.log10(yFac)*0.3)
+    else:
+        yZeroPt = 0.0
+        yMin = yZeroPt
+        if yMax is None:
+            yMax = float(max(nEnsemble))*1.2
+        
+    # Set the X-axis limits, incorporating a single padding bin
+    xFac = (len(b)-1)*0.05
+    if doXlog:
+        sign = np.sign(b)[0]
+        logBins = np.log10(b*sign)
+        logBinWidth = np.max(np.diff(logBins))
+        if xMin is None:
+            xMin = 10**(logBins[0] - logBinWidth*xFac)*sign
+        if xMax is None:
+            xMax = 10**(logBins[-1] + logBinWidth*xFac)*sign
+    else:        
+        linBinWidth = np.max(np.diff(b))
+        if xMin is None:
+            xMin = b[0] - linBinWidth*xFac
+        if xMax is None:
+            xMax = b[-1] + linBinWidth*xFac
+        
+    # Set the axis formatter for log scale axes
+    if doXlog:
+        ax.set_xscale('symlog')
+        majorFormatterX = FuncFormatter(label_format_exp(5.0))
+        ax.xaxis.set_major_formatter(majorFormatterX)
+    if doYlog:
+        ax.set_yscale('symlog')
+        majorFormatterY = FuncFormatter(label_format_exp(3.0))
+        ax.yaxis.set_major_formatter(majorFormatterY)
+    
+    # Create individual histogram polygons. Manually creating histograms gives
+    # more control than inbuilt matplotlib function - when originally writing
+    # this code the fill styles did not work well.
+    for i in range(len(nLst)):
+        
+        # Set the legend labels
+        try:
+            legLabel = legLabLst[i]
+            if legLabLst[i]=="":
+                raise Exception
+        except Exception:
+            legLabel = "Query %s" % (i+1)
+
+            
+        # Create the histograms from line-segments
+        polyCoords = mk_hist_poly(b, nLst[i], doYlog, zeroPt=0.7)
+        hist = Polygon(polyCoords, closed=True, animated=False, linewidth=2.7,
+                       label=legLabel)
+        hist.set_linewidth(histLinewidthLst[styIndx][i])
+        hist.set_edgecolor(edgeColourLst[styIndx][i])
+        hist.set_facecolor(fillColourLst[styIndx][i])
+        hist.set_hatch(hatchStyleLst[styIndx][i])
+        ax.add_patch(hist)
+
+    # Set the X axis limits
+    ax.set_xlim(xMin, xMax)
+    ax.set_ylim(yMin, yMax)
+    
+    # Draw the labels on the plot 
+    ax.set_xlabel(xLabel)
+    ax.set_ylabel(yLabel)
+    ax.set_title(title, size=14)
+
+    # Format tweaks
+    tweakAxFormat(ax, showLeg=True, loc=legLoc)
+
+
     
 # Axis code above
 #=============================================================================#
@@ -1029,3 +1230,129 @@ def plotStampP(dataMan, indx, io='fig'):
     else:
         return fig
     
+
+#-----------------------------------------------------------------------------#
+def plotSctHstQuery(dataMan, plotParm, io='fig'):
+    
+    
+    # Execute each query in turn and store results in list of recarrays
+    popLst = []
+    for i in range(len(plotParm.queryLst)-1,-1,-1):
+        sql =  plotParm.queryLst[i]
+        try:
+            resultArr = dataMan.query_database(sql)
+            names = resultArr.dtype.names
+            xLabel = names[0]
+            popLst.append(resultArr[xLabel])
+        except Exception:
+            popLst.append(None)
+            print "\nWarn: failed to execute query:"
+            print "'%s'\n" % sql
+            print traceback.format_exc(), "\n"
+    popLst.reverse()
+    popLst = popLst[:4]
+
+    # Default to the column header
+    if plotParm.configDict["XLABEL"]=="":
+         plotParm.configDict["XLABEL"] = xLabel
+
+    # Filter data for limits given in the driving file (default None)
+    xMinDataCmd = plotParm.configDict.get("XDATAMIN", None)
+    xMaxDataCmd = plotParm.configDict.get("XDATAMAX", None)
+    xMinData = xfloat(xMinDataCmd, None)
+    xMaxData = xfloat(xMaxDataCmd, None)
+    for i in range(len(popLst)):
+        msk = filter_range_indx(popLst[i], xMinData, xMaxData)
+        popLst[i] = popLst[i][~msk]
+    
+    # Labels from driving file (default column name in DB)
+    xLabel = plotParm.configDict.get("XLABEL", xLabel)
+    yLabel = plotParm.configDict.get("YLABEL", "Count")
+    plotTitle = plotParm.configDict.get("TITLE", "")
+    nBins = xint(plotParm.configDict.get("NBINS", 10))
+
+    # Setup the figure
+    fig = Figure()
+    fig.set_size_inches([8,8])
+        
+    # Bin the data and create the histogram
+    ax = fig.add_subplot(111)
+    plot_hist4_ax(ax,
+                  popLst = popLst,
+                  nBins = int(plotParm.configDict["NBINS"]),
+                  doXlog = int(plotParm.configDict["DOLOGX"]),
+                  doYlog = int(plotParm.configDict["DOLOGY"]),
+                  styIndx = 0,
+                  xMin = None,
+                  xMax = None,
+                  yMax = None,
+                  xLabel = plotParm.configDict["XLABEL"],
+                  yLabel = "Count",
+                  title = plotParm.configDict["TITLE"],
+                  legLabLst = plotParm.queryLabLst)
+    
+    # Write to the pipe
+    if io=='string':
+        sio = StringIO.StringIO()
+        setattr(sio, "name", "foo.jpg")
+        fig.savefig(sio, format='jpg' )    
+        return sio
+    else:
+        return fig
+
+
+    
+#-----------------------------------------------------------------------------#
+def mk_hist_poly(bins, n, logScaleY=False, zeroPt=0.8, addZeroPt=True):
+    """Create the line segments for the a polygon used to draw a histogram"""
+
+    if logScaleY is True:
+        for i in range(len(n)):
+            if n[i] <= 0.0:
+                n[i] = zeroPt 
+    else:
+        zeroPt = 0.0
+
+    # Starting position
+    polyCoordLst = []
+    if addZeroPt:
+        polyCoordLst.append([bins[0],zeroPt])
+
+    # Form the line segments
+    i = 0
+    j = 0
+    while i <= len(bins)-1:
+        if j < len(n):
+            polyCoordLst.append([bins[i],n[j]])
+        if i == j:
+            i += 1
+        else:
+            j += 1
+
+    # Ground the polygon line and close
+    if addZeroPt:
+        polyCoordLst.append([bins[-1],zeroPt])
+        polyCoordLst.append([bins[0],zeroPt])
+    polyCoords = np.array(polyCoordLst)
+                        
+    return polyCoords
+
+
+#-----------------------------------------------------------------------------#
+def label_format_exp(switchExp=3.0):
+    """Return a function to format labels for log axes. Switches to a power
+    format for log10(|number|) >= switchExp."""
+    
+    def rfunc(num, pos=None):
+        absNum = 0.0
+        sign = ""
+        exponent = 0.0
+        if num!=0.0:
+            absNum = abs(num)
+            sign = "-" if int(num/absNum)<0 else ""
+            exponent = m.log10(absNum)
+        if abs(exponent)>=switchExp:
+            return r"$%s10^{%i}$" % (sign, m.log10(absNum))
+        else:
+            return  r"$%s%g$" % (sign, absNum)
+    return rfunc

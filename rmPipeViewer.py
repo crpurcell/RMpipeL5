@@ -6,7 +6,9 @@
 # PURPOSE:  A graphical interface designed to view the results of the Level 5 #
 #           RM-pipeline prototype.                                            #
 #                                                                             #
-# MODIFIED: 10-September-2015 by cpurcell                                     #
+# REQUIRED: Requires numpy, astropy, matplotlib                               #
+#                                                                             #
+# MODIFIED: 12-November-2015 by cpurcell                                      #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -16,7 +18,32 @@
 # PipeInputsFrame   ... frame to display the pipeline inputs                  #
 # ResultsFrame      ... frame presenting the summary of results to the user   #
 # DatabaseFrame     ... frame presenting the database tables to the user      #
+# PlotSctHstFrame   ... frame presenting a plotting interface to the user     #
 # SingleFigFrame    ... frame presenting pre-defined figures for a source     #
+#                                                                             #
+#=============================================================================#
+#                                                                             #
+# The MIT License (MIT)                                                       #
+#                                                                             #
+# Copyright (c) 2015 Cormac R. Purcell                                        #
+#                                                                             #
+# Permission is hereby granted, free of charge, to any person obtaining a     #
+# copy of this software and associated documentation files (the "Software"),  #
+# to deal in the Software without restriction, including without limitation   #
+# the rights to use, copy, modify, merge, publish, distribute, sublicense,    #
+# and/or sell copies of the Software, and to permit persons to whom the       #
+# Software is furnished to do so, subject to the following conditions:        #
+#                                                                             #
+# The above copyright notice and this permission notice shall be included in  #
+# all copies or substantial portions of the Software.                         #
+#                                                                             #
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR  #
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,    #
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE #
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER      #
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING     #
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER         #
+# DEALINGS IN THE SOFTWARE.                                                   #
 #                                                                             #
 #=============================================================================#
 
@@ -41,7 +68,10 @@ import tkFont
 from ScrolledText import ScrolledText
 
 from Imports.util_PPC import DataManager
+from Imports.util_PPC import PlotParms
 from Imports.util_PPC import read_dictfile
+from Imports.util_PPC import cleanup_str_input
+from Imports.util_PPC import xfloat
 from Imports.util_DB import *
 from Imports.util_tk import *
 from Imports.util_plotTk import *
@@ -54,6 +84,42 @@ sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 0)
 class App:
     """
     Class defining the RM Pipeline Viewer application.
+ 
+    This class creates a 'control' root window and a secondary TopLevel window,
+    used for displaying plots and tables. The layout of individual sections in
+    the GUI is done using other classes (e.g., DatabaseFrame) and instances of
+    these classes are created and gridded into the two windows.
+
+    All actions (e.g., selection, button-clicks) in sub-sections of the GUI
+    generate virtual events with specific names. These virtual events are
+    bound to event handler methods in this class. Virtual events cannot
+    pass information, just an event object and name, so if additional
+    information is needed (e.g., row number selected in a listbox) the event
+    handler uses the 'event.widget.<method>' syntax to run <method> code
+    belonging to the class which generated the event. This code can be
+    configured to supply the necessary information (e.g., return a the
+    currently selected row number).
+
+    For example, when the button to show the Stokes I cutout image is clicked
+    a handler method in the ResultsFrame class generates a virtual event called
+    <<plot_stampI>>. This event is acted on by this App class (having
+    been bound below using 'self.root.bind') and the 'self.on_show_plot'
+    method called with arguments 'event=<event_object>' and
+    'plotType=plot_stampI'. This method calls the 'get_indx_selected()'
+    method of the ResultsFrame class (via 'event.widget.get_indx_selected()')
+    to determine which row is selected in the Source Summary Table. The method
+    then clears the plotting window and creates an instance of the class
+    'SingleFigFrame' to generate the Stokes I postage stamp image.
+
+    Data access is performed through a DataManager class, a single instance of
+    which is created when this App class is initiated. Methods in the
+    DataManager object are used to access the FITS files on disk and perform
+    queries on the SQLite3 database. Abstracting the data access through a
+    single class simplifies modifying the data format in the future by
+    requiring code changes only in one place. However, since the data
+    storage model is based on one file per source, there is an I/O penalty
+    when looping over a catalogue of sources (an open & close operation per
+    iteration). This should not be a problem for the current usage model.
     """
 
     def __init__(self, root):
@@ -79,51 +145,53 @@ class App:
         # Bind virtual events generated by sub-widgets
         self.root.bind("<<load_session>>", self.on_load_session)
         self.root.bind("<<show_values>>", lambda event, 
-                       resultType="show_values" : 
-                       self.on_show_result(event, resultType))
+                       plotType="show_values" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_stampI>>", lambda event, 
-                       resultType="plot_stampI" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_stampI" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_stampP>>", lambda event, 
-                       resultType="plot_stampP" :
-                       self.on_show_result(event, resultType))
+                       plotType="plot_stampP" :
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_IPQU>>", lambda event, 
-                       resultType="plot_IPQU" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_IPQU" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_IQUrms>>", lambda event, 
-                       resultType="plot_IQUrms" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_IQUrms" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_polang>>", lambda event, 
-                       resultType="plot_polang" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_polang" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_qup>>", lambda event, 
-                       resultType="plot_qup" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_qup" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_q_vs_u>>", lambda event, 
-                       resultType="plot_q_vs_u" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_q_vs_u" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_rmsf>>", lambda event,
-                       resultType="plot_rmsf" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_rmsf" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_polsum>>", lambda event, 
-                       resultType="plot_polsum" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_polsum" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_dirty_fdf>>", lambda event, 
-                       resultType="plot_dirty_fdf" : 
-                       self.on_show_result(event, resultType))
+                       plotType="plot_dirty_fdf" : 
+                       self.on_show_plot(event, plotType))
         self.root.bind("<<plot_clean_fdf>>", lambda event, 
-                       resultType="plot_clean_fdf" : 
-                       self.on_show_result(event, resultType))        
+                       plotType="plot_clean_fdf" : 
+                       self.on_show_plot(event, plotType))        
         self.root.bind("<<view_sql_table>>", lambda event :
                        self.on_view_sql_table(event))  
         self.root.bind("<<export_sql_table>>", lambda event :
                        self.on_export_sql_table(event))
         self.root.bind("<<run_custom_sql>>", lambda event :
                        self.on_run_custom_sql(event))
+        self.root.bind("<<plot_query_scthst>>", lambda event :
+                       self.on_run_plot_query(event))
         
         # Create the visualisation window and set the focus back to root
         self.visWin = tk.Toplevel(self.root)
-        self.visWin.title("RM Pipeline Viewer - Plotting Window")
+        self.visWin.title("RM Pipeline Viewer - Plotting Window1")
         self.visWin.geometry(geometryPlotWin)
         self.visWin.resizable(True, True)
         self.visWin.protocol("WM_DELETE_WINDOW", self.applicationExit)        
@@ -208,7 +276,7 @@ class App:
         # Reset the plotting window
         self.reset_plotting_window()
 
-    def on_show_result(self, event=None, resultType=""):
+    def on_show_plot(self, event=None, plotType=""):
         """Create the plot requested by the user clicking a button"""
 
         # Get the index of the row selected
@@ -220,7 +288,7 @@ class App:
         
         # Clear the plotting window and create the requested plot
         self.reset_plotting_window()
-        if resultType in ["plot_stampI",
+        if plotType in ["plot_stampI",
                           "plot_stampP",
                           "plot_IPQU",
                           "plot_IQUrms", 
@@ -233,13 +301,13 @@ class App:
                           "plot_clean_fdf"]:
             # Most plots are single figures embedded in a single frame
             resultFrm = SingleFigFrame(self.visWinFrm, self.dataMan,
-                                       indx, resultType)
+                                       indx, plotType)
 
         # TODO: implement the show_values and plot_cutouts actions
-        elif resultType in ["show_values"]:
+        elif plotType in ["show_values"]:
             #print self.dataMan.get_FDF_peak_params_byindx(indx)
             print self.dataMan.get_thin_qumodel_byindx(indx)
-            #errStr = "The action '%s' is not yet supported." % resultType
+            #errStr = "The action '%s' is not yet supported." % plotType
             #tkMessageBox.showinfo("Error", errStr)
             return
         
@@ -259,11 +327,11 @@ class App:
             sql = event.widget.sql
             tableName = event.widget.tableName
             rowLimit = event.widget.rowLimit
+            if sql is None or sql=="":
+                return
+            self.dataMan.query_database(sql)
         except Exception:
             return
-        if sql is None or sql=="":
-            return
-        self.dataMan.query_database(sql)
 
         # Push results into GUI
         titleStr = "Table '%s' (%s rows):" % (tableName, rowLimit)
@@ -279,35 +347,90 @@ class App:
 
     def on_export_sql_table(self, event=None):
         """Save the result of a SQL query"""
-        
+
+        # Get the new table name and save directory from the GUI
         tableName = event.widget.tableName
         outDir = event.widget.exp1Dir.get()
-        
-        # Check that the directory exists
-        
+        if not os.path.exists(outDir):
+            errStr = "Directory does not existL '%s'." % outDir
+            tkMessageBox.showinfo("Error", errStr)
+            return
         formatStr = event.widget.fmt1Comb.get()
         self.dataMan.export_table(tableName, formatStr, outDir)
 
     def on_run_custom_sql(self, event=None):
         """Run a custom SQL query"""
         
+        # Fetch the query and output choice from the widget
+        sql = event.widget.sql
+        if sql is None or sql=="":
+            errStr = "Please enter a query before clicking 'Go'."
+            tkMessageBox.showinfo("Error", errStr)
+            return
+        outType = event.widget.sqlOutChoice.get()
+        formatStr = event.widget.fmt2Comb.get()
+        outDir = event.widget.exp2Dir.get()
+        if not os.path.exists(outDir):
+            errStr = "Directory does not existL '%s'." % outDir
+            tkMessageBox.showinfo("Error", errStr)
+            return
+        newTableName = event.widget.table1Ent.get()
+        if newTableName is None or newTableName=="":                
+            errStr = "Please enter a new table name in the box."
+            tkMessageBox.showinfo("Error", errStr)
+            return
+        # Prepend a 'CREATE TABLE' statement if creating a new table
+        if outType=="db":
+            prep = "CREATE TABLE IF NOT EXISTS %s AS " % newTableName
+            sql = prep + sql
+        
         # Run the query
         try:
-            sql = event.widget.sql            
+            if sql is None or sql=="":
+                return
+            self.dataMan.query_database(sql, buffer=True)
         except Exception:
             return
-        if sql is None or sql=="":
-            return
-        self.dataMan.query_database(sql, buffer=True)
-        outType=event.widget.sqlOutChoice.get()
-        print outType
-        print self.dataMan.tempRec
+
+        # Process the results
+        if outType=="db":
+            event.widget.load(self.dataMan) # Reload the schema
+        elif outType=="exp":
+            self.dataMan.export_table(newTableName, formatStr, outDir, True)
+        else:
+            
+            # Display the results in the plotting window
+            self.reset_plotting_window()
+            titleStr = "Results of custom SQL Query"
+            footerStr = "Click on a column header to sort up or down."
+            resultFrm = SingleTabFrame(self.visWinFrm, titleStr, footerStr)
+            resultFrm.table.insert_recarray(self.dataMan.tempRec)
+            resultFrm.grid(row=0, column=0, padx=5, pady=5, sticky="NSEW")
+            self.visWinFrm.columnconfigure(0, weight=1)
+            self.visWinFrm.rowconfigure(0, weight=1)
+            self.visWinFrm.grid(row=0, column=0, padx=0, pady=0, sticky="NSEW")
+
+    def on_run_plot_query(self, event=None):
+
+        # Refresh the plot parameters from the GUI
+        event.widget.update_plotparm_obj()
+
+        # Call the plotting function
+        fig = plotSctHstQuery(self.dataMan, event.widget.plotParm)
+
+        resultFrm = SingleFigFrame1(self.visWinFrm, fig)
+        
+        # Grid the plot in the visualisation window
+        resultFrm.grid(row=0, column=0, padx=5, pady=5, sticky="NSEW")
+        self.visWinFrm.columnconfigure(0, weight=1)
+        self.visWinFrm.rowconfigure(0, weight=1)
+        self.visWinFrm.grid(row=0, column=0, padx=0, pady=0, sticky="NSEW")
 
 
 #-----------------------------------------------------------------------------#
 class SessChooseFrame(tk.Frame):
-    """
-    Frame containing a session chooser widget and the pipeline status lights.
+    """Frame allowing the user to choose which session to load and to display
+    'lights' showing the status of the modules in the pipeline.
     """
     
     def __init__(self, parent):
@@ -356,7 +479,8 @@ class SessChooseFrame(tk.Frame):
         self.rmsynthStatLab.grid(row=0, column=1, padx=15, pady=5,
                                   sticky="S")
         self.rmsynthStat.grid(row=1, column=1, padx=15, pady=5,
-                              sticky="N")        
+                              sticky="N")
+        
         self.rmcleanStatLab = ttk.Label(self.statFrm, justify="center",
                                         foreground="black",
                                         background="orange",
@@ -370,11 +494,25 @@ class SessChooseFrame(tk.Frame):
         self.rmcleanStat.grid(row=1, column=2, padx=15, pady=5,
                               sticky="N")
         
+        self.cmplxStatLab = ttk.Label(self.statFrm, justify="center",
+                                      foreground="black",
+                                      background="orange",
+                                      text="Waiting", relief="solid",
+                                      anchor="center", padding=5, width=10)
+        self.cmplxStat = ttk.Label(self.statFrm, justify="center",
+                                   text="Complexity",
+                                   anchor="center", padding=0)
+        self.cmplxStatLab.grid(row=0, column=3, padx=5, pady=5,
+                               sticky="S")
+        self.cmplxStat.grid(row=1, column=3, padx=15, pady=5,
+                            sticky="N")
+        
         # Set the expansion behaviour
         self.chooseFrm.columnconfigure(0, weight=1)
         self.statFrm.columnconfigure(0, weight=1)
         self.statFrm.columnconfigure(1, weight=1)
         self.statFrm.columnconfigure(2, weight=1)
+        self.statFrm.columnconfigure(3, weight=1)
         self.columnconfigure(0, weight=1)
         self.columnconfigure(1, weight=1)
     
@@ -390,6 +528,7 @@ class SessChooseFrame(tk.Frame):
         self.event_generate("<<load_session>>")
 
     def set_status(self, process="extract", status=0):
+
         """Set the colour and text in the pipeline status 'lights'"""        
         if  process=="extract":
             targetLab = self.extractStatLab
@@ -397,6 +536,8 @@ class SessChooseFrame(tk.Frame):
             targetLab = self.rmsynthStatLab
         elif  process=="rmclean":
             targetLab = self.rmcleanStatLab
+        elif  process=="complexity":
+            targetLab = self.cmplxStatLab
         else:
             return
         if status==2:            
@@ -435,6 +576,7 @@ class NotebookFrame(tk.Frame):
         self._add_pipeinputs_tab()
         self._add_results_tab()
         self._add_database_tab()
+        self._add_plotting_tab()
         
     def _add_pipeinputs_tab(self):
         tabFrm = tk.Frame(self.nb)
@@ -442,7 +584,7 @@ class NotebookFrame(tk.Frame):
         tabFrm.columnconfigure(0, weight=1)
         self.inputsNB = PipeInputsFrame(tabFrm)
         self.inputsNB.grid(column=0, row=0, sticky="NSEW")
-        self.nb.add(tabFrm, text="Pipeline Inputs", padding=5)
+        self.nb.add(tabFrm, text="  Pipeline Inputs  ", padding=5)
         
     def _add_results_tab(self):
         tabFrm = tk.Frame(self.nb)
@@ -450,7 +592,7 @@ class NotebookFrame(tk.Frame):
         tabFrm.columnconfigure(0, weight=1)
         self.resNB = ResultsFrame(tabFrm)
         self.resNB.grid(column=0, row=0, sticky="NSEW")
-        self.nb.add(tabFrm, text="Results Summary", padding=5)
+        self.nb.add(tabFrm, text="  Results by Source  ", padding=5)
 
     def _add_database_tab(self):
         tabFrm = tk.Frame(self.nb)
@@ -458,12 +600,28 @@ class NotebookFrame(tk.Frame):
         tabFrm.columnconfigure(0, weight=1)
         self.dbNB = DatabaseFrame(tabFrm)
         self.dbNB.grid(column=0, row=0, sticky="NSEW")
-        self.nb.add(tabFrm, text="Database Tables & Export", padding=5)
+        self.nb.add(tabFrm, text="  Database Query & Export  ", padding=5)
 
+    def _add_plotting_tab(self):
+        tabFrm = tk.Frame(self.nb)
+        tabFrm.rowconfigure(0, weight=1)
+        tabFrm.columnconfigure(0, weight=1)
+        self.plotNB = PlotSctHstFrame(tabFrm)
+        self.plotNB.grid(column=0, row=0, sticky="NSEW")
+        self.nb.add(tabFrm, text="  Scatter & Histogram Plotting  ", padding=5)
+
+        
+        
 
 #-----------------------------------------------------------------------------#
 class PipeInputsFrame(tk.Frame):
-    """Frame presenting the pipeline inputs to the user."""
+    """Frame presenting the pipeline inputs to the user.
+    
+    TODO: Greatly simplify this interface by presenting the pipeline input
+    file on the left and derived parameters on the right. The pipeline input
+    file is already well formatted and so could be displayed using syntax
+    highlighting.    
+    """
     
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
@@ -654,7 +812,8 @@ class PipeInputsFrame(tk.Frame):
 class ResultsFrame(tk.Frame):
     """
     Frame presenting a summary table of results to the user and a list of
-    further actions, e.g., plotting the spectra, FDF etc.""" 
+    further actions, e.g., plotting the spectra, FDF etc. for individual
+    sources.""" 
     
     def __init__(self, parent):
         tk.Frame.__init__(self, parent)
@@ -666,7 +825,7 @@ class ResultsFrame(tk.Frame):
         self.tableFrm.grid(column=0, row=0, rowspan=13, padx=5, pady=2,
                            sticky="NSEW")
         self.title1Lab = tk.Label(self.tableFrm, justify="center", anchor="nw",
-                                  text="Results Summary Table:")
+                                  text="Source Summary Table:")
         self.title1Lab.grid(row=0, column=0, columnspan=2, padx=5, pady=3,
                             sticky="EW")
         self.resultsTab = ScrolledTreeTab(self.tableFrm,
@@ -807,10 +966,13 @@ class ResultsFrame(tk.Frame):
 #-----------------------------------------------------------------------------#
 class DatabaseFrame(tk.Frame):
     """
-    Frame presenting the tables in the database and their description,
-    ability to allow exporting individual tables in different formats, and the
-    ability to view individual tables. May also allow execution of SQL queries
-    and ability to export these results.
+    Frame presenting the schema of the SQLite database and the structure
+    the individual tables. The interface provides the ability to export
+    individual tables in CSV format or view the tables in the results window.
+
+    The key feature here is the ability to execute custom SQL queries and
+    save the results as a new table, export to disk or view in the plotting
+    window.
     """
     
     def __init__(self, parent):
@@ -821,7 +983,7 @@ class DatabaseFrame(tk.Frame):
         self.tableName = ""
         self.rowLimit = ""
 
-        # TreeView of tables
+        # TreeView showing table structures
         self.titleSchemaLab = tk.Label(self, anchor="nw",
                                   text="Database Structure:")
         self.titleSchemaLab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")
@@ -829,7 +991,7 @@ class DatabaseFrame(tk.Frame):
         self.schemaFrm.grid(row=1, column=0, rowspan=8, padx=5, pady=2,
                             sticky="NSEW")
         self.schemaTree = ScrolledTreeView(self.schemaFrm,
-                                           virtEvent="<<schema_table_selected>>")
+                                         virtEvent="<<schema_table_selected>>")
         self.schemaTree.tree['columns'] = ("column", "type", "key")
         self.schemaTree.tree['displaycolumns'] = ("type", "key")
         self.schemaTree.tree.heading("#0", text="Table / Column", anchor='w')
@@ -906,7 +1068,8 @@ class DatabaseFrame(tk.Frame):
         
         # Blank row 9 is stretchable separator
         #sep = ttk.Separator(self, orient="horizontal")
-        #sep.grid(row=9, column=0, columnspan=4, padx=5, pady=15, sticky="NSEW")
+        #sep.grid(row=9, column=0, columnspan=4, padx=5, pady=15,
+        #sticky="NSEW")
         
         # SQL Query - TODO: IN DEVELOPMENT
         self.sqlFrm = tk.Frame(self)
@@ -936,7 +1099,7 @@ class DatabaseFrame(tk.Frame):
                                  text="Save result as new table in database")
         self.sqlDBRad.grid(row=3, column=1, padx=5, pady=2, sticky="NW" )
         self.sqlExpRad = ttk.Radiobutton(self.sqlFrm, 
-                                         variable=self.sqlOutChoice, value="exp",
+                                       variable=self.sqlOutChoice, value="exp",
                                        text="Export result of query to disk")
         self.sqlExpRad.grid(row=4, column=1, padx=5, pady=2, sticky="NW")
         self.sqlOutChoice.set("view")
@@ -977,7 +1140,8 @@ class DatabaseFrame(tk.Frame):
         self.sqlFrm.columnconfigure(2, weight=1)
         
         # Bindings
-        self.schemaTree.bind("<<schema_table_selected>>", self.on_tree_selected)
+        self.schemaTree.bind("<<schema_table_selected>>",
+                             self.on_tree_selected)
 
         # Set the expansion behaviour
         self.columnconfigure(0, weight=1)
@@ -1036,7 +1200,6 @@ class DatabaseFrame(tk.Frame):
         
     def clear_schematree(self):
         """Clear all the entries from the schema tree."""
-
         try:
             x = self.schemaTree.tree.get_children()
             for entry in x:
@@ -1055,12 +1218,336 @@ class DatabaseFrame(tk.Frame):
                     text=e['name'],values=[e['name'], e["type"],
                                            "yes" if e["pk"]==1 else "no"])
     
+
+#-----------------------------------------------------------------------------#
+class PlotSctHstFrame(tk.Frame):
+    """Frame presenting an interface to create a scatter plot"""
+
+    def __init__(self, parent):
+        tk.Frame.__init__(self, parent)
+        self.parent = parent
+        self.plotParm = None
+    
+        # Box in which to write the queries. 
+        msg = "Enter up to 4 SQL queries on separate lines:"
+        self.title1Lab = tk.Label(self, anchor="nw", text=msg)
+        self.title1Lab.grid(row=0, column=0, columnspan=3, padx=5, pady=3,
+                            sticky="EW")
+        self.sqlTextBox = ScrolledText(self)
+        self.sqlTextBox.tag_configure("even", background="#e0e0e0")
+        self.sqlTextBox.tag_configure("odd", background="#ffffff")
+        self.sqlTextBox.grid(row=1, column=0, columnspan=3, rowspan=7,
+                             padx=5, pady=3, sticky="NSEW")
+        self.sqlTextBox.frame.configure(relief="solid", borderwidth="1")
+
+        # Buttons to create the plot
+        self.title2Lab = tk.Label(self, justify="center", anchor="nw",
+                                  text="Plotting Actions:")
+        self.title2Lab.grid(row=0, column=3, columnspan=1, padx=5, pady=3,
+                            sticky="W")
+        sep = ttk.Separator(self, orient="horizontal")
+        sep.grid(row=1, column=3, columnspan=1, padx=5, pady=5, sticky="NSEW")
+        self.loadLab = tk.Label(self, text="Load parameters from file:")
+        self.loadLab.grid(row=2, column=3, padx=5, pady=3, sticky="W")
+        self.browseBtn = ttk.Button(self, text="Browse",
+                                    command=self._handlerLoadQueryButton)
+        self.browseBtn.grid(row=3, column=3, padx=5, pady=2, sticky="EW")
+
+        self.saveLab = tk.Label(self, text="Save parameters to file:")
+        self.saveLab.grid(row=4, column=3, padx=5, pady=3, sticky="W")
+        self.saveBtn = ttk.Button(self, text="Browse",
+                                  command=self._handlerSaveQueryButton)
+        self.saveBtn.grid(row=5, column=3, padx=5, pady=2,sticky="EW")        
+        self.plotBtn = ttk.Button(self, text="\nCREATE PLOT\n", width=10,
+                                  command=self._handlerPlotButton)
+        self.plotBtn.grid(row=7, column=3, padx=5, pady=2, sticky="SEW" )
+        
+        # Box for plot type and axis scaling
+        self.axesFrm = ttk.LabelFrame(self, text=" Plot Type & Axis Scaling ")
+        self.axesFrm.grid(column=0, row=8, padx=5, pady=2, sticky="NSEW")
+        self.pltTypLab = tk.Label(self.axesFrm, anchor="nw", text="Plot Type:")
+        self.pltTypLab.grid(row=0, column=0, padx=5, pady=3, sticky="E")
+        self.pltTypLst = ["Histogram", "Scatter"]
+        self.pltTypComb = ttk.Combobox(self.axesFrm, values=self.pltTypLst,
+                                       width=10)
+        self.pltTypComb.current(0)
+        self.pltTypComb.grid(row=0, column=1, padx=5, pady=3, sticky="EW")
+        self.nBinLab = ttk.Label(self.axesFrm, anchor="nw",
+                                    text="Number of bins:")
+        self.nBins = tk.StringVar()
+        self.nBinLab.grid(row=1, column=0, padx=5, pady=3, sticky="E")
+        self.nBinEnt = ttk.Entry(self.axesFrm, width=10)
+        self.nBinEnt.grid(row=1, column=1,  padx=5, pady=3, sticky="EW")
+        
+        self.doLogX = tk.IntVar()
+        self.logXChk = ttk.Checkbutton(self.axesFrm, text="Log X",
+                                       variable=self.doLogX, onvalue=1,
+                                       offvalue=0)
+        self.logXChk.grid(row=2, column=0, columnspan=1, padx=5, pady=2,
+                          sticky="E")
+        self.doLogY = tk.IntVar()
+        self.logYChk = ttk.Checkbutton(self.axesFrm, text="Log Y",
+                                       variable=self.doLogY, onvalue=1,
+                                       offvalue=0)
+        self.logYChk.grid(row=2, column=1, columnspan=1, padx=5, pady=2,
+                          sticky="E")
+        self.zPowLab = tk.Label(self.axesFrm, anchor="nw", text="Z Power:")
+        self.zPowLab.grid(row=3, column=0, padx=5, pady=3, sticky="E")
+        zPowLst = ["0.2", "0.3", "0.4", "0.5", "0.6", "0.7", "0.8", "0.9",
+                   "1.0", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
+                   "1.9", "2.0"]
+        self.zPower = tk.StringVar()
+        self.zPowComb = ttk.Combobox(self.axesFrm, textvariable=self.zPower,
+                                     values=zPowLst, width=5)
+        self.zPowComb.current(8)
+        self.zPowComb.grid(row=3, column=1, padx=5, pady=3, sticky="EW")
+        
+        # Axis labels
+        self.titleFrm = ttk.LabelFrame(self, text="  Axis Labels  ")
+        self.titleFrm.grid(column=1, row=8, padx=5, pady=2, sticky="NSEW")
+        self.xLabelLab = tk.Label(self.titleFrm, justify="center", anchor="n",
+                                  text="X-Axis:")
+        self.xLabelLab.grid(row=0, column=0, padx=5, pady=3, sticky="E")
+        self.xLabelEnt = ttk.Entry(self.titleFrm, width=20)
+        self.xLabelEnt.grid(row=0, column=1,  padx=5, pady=3, sticky="EW")
+        self.yLabelLab = tk.Label(self.titleFrm, justify="center", anchor="n",
+                                  text="Y-Axis:")
+        self.yLabelLab.grid(row=1, column=0, padx=5, pady=3, sticky="E")
+        self.yLabelEnt = ttk.Entry(self.titleFrm, width=20)
+        self.yLabelEnt.grid(row=1, column=1,  padx=5, pady=3, sticky="EW")     
+        self.zLabelLab = tk.Label(self.titleFrm, justify="center", anchor="n",
+                                  text="Z-Axis:")
+        self.zLabelLab.grid(row=2, column=0, padx=5, pady=3, sticky="E")
+        self.zLabelEnt = ttk.Entry(self.titleFrm, width=20)
+        self.zLabelEnt.grid(row=2, column=1,  padx=5, pady=3, sticky="EW")
+        self.tLabelLab = tk.Label(self.titleFrm, anchor="n",
+                                  text="Title:")
+        self.tLabelLab.grid(row=3, column=0, padx=5, pady=3, sticky="E")
+        self.tLabelEnt = ttk.Entry(self.titleFrm, width=20)
+        self.tLabelEnt.grid(row=3, column=1,  padx=5, pady=3, sticky="EW")
+        self.titleFrm.columnconfigure(1, weight=1)
+        
+        # Legend labels
+        self.legendFrm = ttk.LabelFrame(self, text="  Legend Labels  ")
+        self.legendFrm.grid(column=2, row=8, padx=5, pady=2, sticky="NSEW")
+        self.qEntLst = []
+        self.q1Lab = tk.Label(self.legendFrm, justify="center", anchor="n",
+                                  text="Query 1:")
+        self.q1Lab.grid(row=0, column=0, padx=5, pady=3, sticky="W")
+        self.qEntLst.append(ttk.Entry(self.legendFrm, width=20))
+        self.qEntLst[-1].grid(row=0, column=1,  padx=5, pady=3, sticky="EW")
+        self.q2Lab = tk.Label(self.legendFrm, justify="center", anchor="n",
+                                  text="Query 2:")
+        self.q2Lab.grid(row=1, column=0, padx=5, pady=3, sticky="W")
+        self.qEntLst.append(ttk.Entry(self.legendFrm, width=20))
+        self.qEntLst[-1].grid(row=1, column=1,  padx=5, pady=3, sticky="EW")
+        self.q3Lab = tk.Label(self.legendFrm, justify="center", anchor="n",
+                                  text="Query 3:")
+        self.q3Lab.grid(row=2, column=0, padx=5, pady=3, sticky="W")
+        self.qEntLst.append(ttk.Entry(self.legendFrm, width=20))
+        self.qEntLst[-1].grid(row=2, column=1,  padx=5, pady=3, sticky="EW")
+        self.q4Lab = tk.Label(self.legendFrm, justify="center", anchor="n",
+                                  text="Query 4:")
+        self.q4Lab.grid(row=3, column=0, padx=5, pady=3, sticky="W")
+        self.qEntLst.append(ttk.Entry(self.legendFrm, width=20))
+        self.qEntLst[-1].grid(row=3, column=1,  padx=5, pady=3, sticky="EW")
+        self.legendFrm.columnconfigure(1, weight=1)
+        
+        # Data clipping, X, Y, Z
+        self.clipFrm = ttk.LabelFrame(self, text="  Data Clipping  ")
+        self.clipFrm.grid(column=3, row=8, padx=5, pady=2, sticky="NSEW")
+        self.minLab = tk.Label(self.clipFrm, justify="center", anchor="n",
+                                  text="Minimum")
+        self.minLab.grid(row=0, column=1, padx=5, pady=3, sticky="EW")
+        self.maxLab = tk.Label(self.clipFrm, justify="center", anchor="n",
+                               text="Maximum")
+        self.maxLab.grid(row=0, column=2, padx=5, pady=3, sticky="EW")
+        self.clipXLab = tk.Label(self.clipFrm, justify="center", anchor="n",
+                                  text="X:")
+        self.clipXLab.grid(row=1, column=0, padx=5, pady=3, sticky="W")
+        self.minXEnt = ttk.Entry(self.clipFrm, width=10)
+        self.minXEnt.grid(row=1, column=1,  padx=5, pady=3)     
+        self.maxXEnt = ttk.Entry(self.clipFrm, width=10)
+        self.maxXEnt.grid(row=1, column=2,  padx=5, pady=3)
+        self.clipYLab = tk.Label(self.clipFrm, justify="center", anchor="n",
+                                  text="Y:")
+        self.clipYLab.grid(row=2, column=0, padx=5, pady=3, sticky="W")
+        self.minYEnt = ttk.Entry(self.clipFrm, width=10)
+        self.minYEnt.grid(row=2, column=1,  padx=5, pady=3)     
+        self.maxYEnt = ttk.Entry(self.clipFrm, width=10)
+        self.maxYEnt.grid(row=2, column=2,  padx=5, pady=3)     
+        self.clipZLab = tk.Label(self.clipFrm, justify="center", anchor="n",
+                                  text="Z:")
+        self.clipZLab.grid(row=3, column=0, padx=5, pady=3, sticky="W")
+        self.minZEnt = ttk.Entry(self.clipFrm, width=10)
+        self.minZEnt.grid(row=3, column=1,  padx=5, pady=3)     
+        self.maxZEnt = ttk.Entry(self.clipFrm, width=10)
+        self.maxZEnt.grid(row=3, column=2,  padx=5, pady=3)     
+
+        # Set grid sections to stretch
+        self.columnconfigure(1, weight=1)
+        self.columnconfigure(2, weight=1)
+        self.rowconfigure(7, weight=1)
+
+        # Set defaults
+        self.reset_defaults()
+        
+    def _handlerLoadQueryButton(self):
+        """Open the file selection dialog to load a query file."""
+        queryFileName = tkFileDialog.askopenfilename(parent=self,
+                               title="Please select a parameter file to load:")
+        if queryFileName!="":
+            self.load_queryfile(queryFileName)
+            
+    def _handlerSaveQueryButton(self):
+        """Open the file save dialogue to save a query file"""
+        queryFileName = tkFileDialog.asksaveasfilename(parent=self,
+                           title="Save current plotting parameters to a file:")
+        if queryFileName!="":
+            self.save_queryfile(queryFileName)
+
+    def _handlerPlotButton(self):
+        self.event_generate("<<plot_query_scthst>>")
+
+    def load_queryfile(self, queryFileName):
+        """Load settings from a query file into the GUI"""
+        self.plotParm = PlotParms(queryFileName)
+        pDict = self.plotParm.configDict
+        queryLst = self.plotParm.queryLst
+        queryLabLst = self.plotParm.queryLabLst
+        self.reset_defaults()
+        # Query box
+        tag = "odd"
+        for i in range(len(queryLst)):
+            self.sqlTextBox.insert("1.0", queryLst[i] + "\n", tag)
+            tag = "even" if tag == "odd" else "odd"
+        # Plot type
+        valueLst = self.pltTypComb["values"]        
+        pDict["TYPE"] = pDict.get("TYPE", valueLst[0])
+        if not pDict["TYPE"] in valueLst:
+            pDict["TYPE"] = valueLst[0]
+        self.pltTypComb.current(valueLst.index(pDict["TYPE"]))
+        # Number of bins
+        nBins = pDict.get("NBINS", self.nBinEnt.get()) 
+        self.nBinEnt.delete(0,tk.END)    
+        self.nBinEnt.insert(0, nBins)
+        # Log X radiobutton
+        pDict["DOLOGX"] = pDict.get("DOLOGX", "0")
+        if pDict["DOLOGX"] in ["Y", "y", "1"]:
+            self.doLogX.set(1)
+        else:
+            self.doLogX.set(0)
+        # Log Y radiobutton
+        pDict["DOLOGY"] = pDict.get("DOLOGY", "0")
+        if pDict["DOLOGY"] in ["Y", "y", "1"]:
+            self.doLogY.set(1)
+        else:
+            self.doLogY.set(0)
+        # Z Power combobox (set nearest value)
+        valueLst = [float(x) for x in self.zPowComb["values"]]
+        cmdZpow = float(pDict.get("ZPOWER", "1.0"))
+        closeZpow = min(valueLst, key=lambda x:abs(x-cmdZpow))
+        self.zPowComb.current(valueLst.index(closeZpow))
+        
+        # Axis labels and title
+        self.xLabelEnt.insert(0, pDict.get("XLABEL", ""))
+        self.yLabelEnt.insert(0, pDict.get("YLABEL", ""))
+        self.zLabelEnt.insert(0, pDict.get("ZLABEL", ""))
+        self.tLabelEnt.insert(0, pDict.get("TITLE", ""))
+        # Legend labels
+        for i in range(len(queryLabLst)):
+            self.qEntLst[i].delete(0,tk.END)
+            self.qEntLst[i].insert(0, queryLabLst[i])
+        # Data clipping
+        self.minXEnt.insert(0, pDict.get("XDATAMIN", ""))
+        self.maxXEnt.insert(0, pDict.get("XDATAMAX", ""))
+        self.minYEnt.insert(0, pDict.get("YDATAMIN", ""))
+        self.maxYEnt.insert(0, pDict.get("YDATAMAX", ""))
+        self.minZEnt.insert(0, pDict.get("ZDATAMIN", ""))
+        self.maxZEnt.insert(0, pDict.get("ZDATAMAX", ""))
+
+    def save_queryfile(self, queryFileName):
+        pass
+            
+    def reset_defaults(self):
+        """Clear or reset to default all plot settings"""
+        self.sqlTextBox.delete("1.0",tk.END)
+        self.pltTypComb.current(0)        
+        self.nBinEnt.delete(0,tk.END)        
+        self.nBinEnt.insert(0, "10")
+        self.doLogX.set(0)
+        self.doLogY.set(0)
+        self.zPowComb.current(8)
+        self.xLabelEnt.delete(0,tk.END)
+        self.yLabelEnt.delete(0,tk.END)
+        self.zLabelEnt.delete(0,tk.END)
+        self.tLabelEnt.delete(0,tk.END)
+        for i in range(len(self.qEntLst)):
+            self.qEntLst[i].delete(0,tk.END)
+            self.qEntLst[i].insert(0, "Query %s" % (i+1))
+        self.minXEnt.delete(0,tk.END)
+        self.maxXEnt.delete(0,tk.END)
+        self.minYEnt.delete(0,tk.END)
+        self.maxYEnt.delete(0,tk.END)
+        self.minZEnt.delete(0,tk.END)
+        self.maxZEnt.delete(0,tk.END)
+
+    def update_plotparm_obj(self):
+        textStr = self.sqlTextBox.get("1.0","end")
+        textStr = cleanup_str_input(str(textStr))
+        self.plotParm.queryLst = textStr.split("\n")
+        labLst = []
+        for i in range(len(self.qEntLst)):
+            labLst.append(self.qEntLst[i].get())
+        self.plotParm.queryLabLst = labLst
+        self.plotParm.configDict["TYPE"] = self.pltTypComb.get()
+        self.plotParm.configDict["NBINS"] = self.nBinEnt.get()
+        self.plotParm.configDict["DOLOGX"] = self.doLogX.get()
+        self.plotParm.configDict["DOLOGY"] = self.doLogY.get()
+        self.plotParm.configDict["ZPOWER"] = self.zPower.get()
+        self.plotParm.configDict["XDATAMIN"] = self.minXEnt.get()
+        self.plotParm.configDict["XDATAMAX"] = self.maxXEnt.get()
+        self.plotParm.configDict["YDATAMIN"] = self.minYEnt.get()
+        self.plotParm.configDict["YDATAMAX"] = self.maxYEnt.get()
+        self.plotParm.configDict["ZDATAMIN"] = self.minZEnt.get()
+        self.plotParm.configDict["ZDATAMAX"] = self.maxZEnt.get()
+        self.plotParm.configDict["TITLE"] = self.tLabelEnt.get()
+        self.plotParm.configDict["XLABEL"] = self.xLabelEnt.get()
+        self.plotParm.configDict["YLABEL"] = self.yLabelEnt.get()
+        self.plotParm.configDict["ZLABEL"] = self.zLabelEnt.get()
+
+        
+#-----------------------------------------------------------------------------#
+class SingleFigFrame1(tk.Frame):
+    
+    def __init__(self, parent, fig):
+        tk.Frame.__init__(self, parent)
+        self.parent = parent
+        self.frame = tk.Frame(self.parent)
+        self.frame.grid(row=0, column=0, padx=5, pady=5, sticky="NSEW")
+
+    
+        # Layout the figure, title and button row 
+        self.titleLab = tk.Label(self.frame, justify="left", anchor="nw",
+                                 text="Query Plot")
+        self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="NW")
+        figCanvas = FigureCanvasTkAgg(fig, master=self.frame)
+        figCanvas.show()
+        self.myCan = figCanvas.get_tk_widget()
+        self.myCan.grid(row=1, column=0, padx=5, pady=5, sticky="NSEW")
+        self.toolbarFrame = tk.Frame(self.frame)
+        toolbar = NavigationToolbar2TkAgg(figCanvas, self.toolbarFrame)
+        toolbar.pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        self.toolbarFrame.grid(row=2, column=0, padx=5, pady=5, sticky="EW")
+        self.frame.columnconfigure(0, weight=1)
+        self.frame.rowconfigure(1, weight=1)
+
         
 #-----------------------------------------------------------------------------#
 class SingleFigFrame(tk.Frame):
     """Frame presenting a single MatPlotLib figure from a known list."""
 
-    def __init__(self, parent, dataMan, indx, resultType):
+    def __init__(self, parent, dataMan, indx, plotType):
         tk.Frame.__init__(self, parent)
         self.parent = parent
         self.frame = tk.Frame(self.parent)
@@ -1070,37 +1557,37 @@ class SingleFigFrame(tk.Frame):
         self.uniqueName = self.dataMan.summaryRec["uniqueName"][indx]
         
         # Choose the type of plot to show
-        if resultType=="plot_IPQU":
+        if plotType=="plot_IPQU":
             titleStr = "Extracted Stokes I, Q & U Spectra:"
             fig =  plotSpecIPQU(self.dataMan, indx)
-        elif resultType=="plot_IQUrms":
+        elif plotType=="plot_IQUrms":
             titleStr = "Measured RMS Noise Spectra:"
             fig = plotSpecRMS(self.dataMan, indx)
-        elif resultType=="plot_polang":
+        elif plotType=="plot_polang":
             titleStr = "Polarisation Angle versus Wavelength-Squared:"
             fig = plotPolang(self.dataMan, indx)
-        elif resultType=="plot_qup":
+        elif plotType=="plot_qup":
             titleStr = "Polarisation Fraction versus Wavelength-Squared:"
             fig = plotFracPol(self.dataMan, indx)
-        elif resultType=="plot_q_vs_u":
+        elif plotType=="plot_q_vs_u":
             titleStr = "Fractional Stokes Q versus U:"
             fig = plotFracQvsU(self.dataMan, indx)
-        elif resultType=="plot_polsum":
+        elif plotType=="plot_polsum":
             titleStr = "Polarisation Summary Plots:"
             fig = plotPolsummary(self.dataMan, indx)
-        elif resultType=="plot_rmsf":
+        elif plotType=="plot_rmsf":
             titleStr = "Rotation Measure Spread Function:"
             fig = plotRMSF(self.dataMan, indx)
-        elif resultType=="plot_dirty_fdf":
+        elif plotType=="plot_dirty_fdf":
             titleStr = "Dirty FDF"
             fig = plotDirtyFDF(self.dataMan, indx)
-        elif resultType=="plot_clean_fdf":
+        elif plotType=="plot_clean_fdf":
             titleStr = "Clean FDF and CC spectrum"
             fig = plotCleanFDF(self.dataMan, indx)
-        elif resultType=="plot_stampI":
+        elif plotType=="plot_stampI":
             titleStr = "Stokes I postage stamp image (channel 1)"
             fig = plotStampI(self.dataMan, indx)
-        elif resultType=="plot_stampP":
+        elif plotType=="plot_stampP":
             titleStr = "Polarised intensity P postage stamp image (channel 1)"
             fig = plotStampP(self.dataMan, indx)
         else:
@@ -1133,7 +1620,7 @@ class SingleTabFrame(tk.Frame):
         # Table 
         self.titleLab = tk.Label(self, justify="left", anchor="nw",
                                   text=title)
-        self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")        
+        self.titleLab.grid(row=0, column=0, padx=5, pady=3, sticky="EW")
         self.table = ScrolledTreeTab(self)
         self.table.grid(column=0, row=1, padx=5, pady=3, sticky="NSEW")
         self.footerLab = tk.Label(self, justify="left", anchor="nw",

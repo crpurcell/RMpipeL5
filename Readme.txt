@@ -33,14 +33,14 @@
 * Create a best-fit RM-thin model and subtract to get residual.
 TO BE PLOTTED
 * Implement complexity measurements based on residuals. 
-IN PROGRESS
+IN PROGRESS - IN TESTING
 
 
 # GUI & interface
 * Re-write pipeline inputs tab to show driving file on left and
   derived parmaters on right.
 * Show the result values in the plotting window.
-* Add a name filter to the table
+* (Add a name filter to the table)
 * Annotate main result values on plots.
 * Subclass the plot control bar and add a button to hide the legends
 * Pipeline script to batch create publication plots and export results tables.
