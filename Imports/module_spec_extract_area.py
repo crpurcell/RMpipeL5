@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires the numpy, scipy and astropy modules.                    #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -60,16 +60,17 @@ from util_FITS import strip_fits_dims
 
 
 #-----------------------------------------------------------------------------#
-def mod_spec_extract(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
-                     freqArr_Hz=None, extractMode="box", sumBox_pix=3,
-                     gaussAperture_sigma=2.3548, polyOrd=2, outDataDir='./OUT',
-                     nBeams=50.0, saveCubeMode=1, doOverwrite=False, LF=None):
+def mod_spec_extract_area(catRec, fitsLstI, fitsLstQ, fitsLstU, fitsLstV=None,
+                          freqArr_Hz=None, extractMode="box", sumBox_pix=3,
+                          gaussAperture_sigma=2.3548, polyOrd=2,
+                          outDataDir='./OUT', nBeams=50.0, saveCubeMode=1,
+                          doOverwrite=False, LF=None):
     """
     Run the procedure to extract data from each of the Stokes I, Q and U image
     planes, stored in FITS files. For each catalogue entry and Stokes component
     a FITS file is created containing a cutout cube (area=nBeams), an extraction
     aperture mask and a spectra table with columns 'freq', 'rms', 'src' and
-    'model'. A polynomial of order <=5 is fit to the Stokes I spectrum and a
+    'model'. A polynomial of order <=5 is fit to the Stokes I spectrum and
     stored in the 'model' column. Measurements made on each source spectrum
     are written to a record array and returned.
     """

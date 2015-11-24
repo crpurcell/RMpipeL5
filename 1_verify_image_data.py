@@ -10,7 +10,7 @@
 #           simple sanity checks and write vectors of frequency and filename  #
 #           to ASCII files on disk.                                           #
 #                                                                             #
-# MODIFIED: 10-November-2015 by C. Purcell                                    #
+# MODIFIED: 19-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -38,8 +38,7 @@
 #                                                                             #
 #=============================================================================#
 
-
-# Default patterns to match the Stokes I Q and U files.
+# Default wildcard patterns to match the Stokes I Q and U files.
 patIdefault = '*I.fits'
 patQdefault = '*Q.fits'
 patUdefault = '*U.fits'
@@ -68,8 +67,8 @@ def main():
     Scan a directory for FITS format files containing Stokes I, Q and U data.
     Each FITS file should contain a single image (frequency plane) from a cube
     of data.  The script sorts the list of files by frequency (read from the
-    CRVAL3 header key) and writes ordered vectors of frequency, channel and
-    filename to ASCII text files in the data directory. Files for each Stokes
+    CRVAL3 header key) and writes ordered vectors of frequency and filename to
+    ASCII text files in the data directory. Files for each Stokes 
     parameter should have a unique naming format, matched by the wildcard
     patterns. Default patterns are set at the top of the script and may be
     overridden using command line arguments.
@@ -151,7 +150,7 @@ def verify_image_data(dataPath, patI, patQ, patU):
         print "This means there are <3 channels in your dataset!"
         sys.exit()
         
-    # Lists to store chan, freq
+    # List to store frequency
     freqLst = []
 
     # Loop through the files in lock-step
@@ -233,7 +232,7 @@ def verify_image_data(dataPath, patI, patQ, patU):
         os.remove(dataFile)
     np.savetxt(dataFile, dataULstS, fmt='%s')
 
-    # Note the type of data in a file (placeholder: we may add other types)
+    # Note the type of data in a file
     typeFile = dataPath + '/dataType.txt'
     print "Noting dataType='FITS_planes' in file '%s'." % typeFile
     FH = open(typeFile, 'w')

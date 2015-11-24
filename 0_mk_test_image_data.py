@@ -3,14 +3,14 @@
 #                                                                             #
 # NAME:     mk_test_image_data.py                                             #
 #                                                                             #
-# USAGE:    ./mk_test_data.py                                                 #
+# USAGE:    ./mk_test_image_data.py                                           #
 #                                                                             #
-# PURPOSE:  Create a small FITS dataset for the purposes of testing the       #
-#           RM-pipeline. The script outputs a set of IQU image planes         #
+# PURPOSE:  Create a small FITS image dataset for the purposes of testing     #
+#           the RM-pipeline. The script outputs a set of IQU image planes     #
 #           containing unresolved sources. Edit the values at the top of the  #
 #           script and run.                                                   #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -38,9 +38,8 @@
 #                                                                             #
 #=============================================================================#
 
-
-# Session path/name
-sessionPath = "testSession/"
+# Example session path
+sessionPath = "testSessionImage/"
 
 # Data cube parameters
 startFreq_Hz =  1.0e9
@@ -131,26 +130,26 @@ def main():
 
     Example:
 
-    ./0_mk_test_image_data.py testData/
+    ./0_mk_test_image_data.py testImageData/
     """
 
     # Parse the command line options
     parser = argparse.ArgumentParser(description=descStr,
                                  formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("dataPath", metavar="PATH/TO/DATA",
-                        default="testData/", nargs="?",
-                        help="Path to new data directory [testData/]")
+                        default="testImageData/", nargs="?",
+                        help="Path to new data directory [testImageData/]")
     args = parser.parse_args()
     dataPath = args.dataPath
 
     # Call the function to create FITS data
-    create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
+    create_IQU_fits_data(dataPath, srcInLst, startFreq_Hz, endFreq_Hz, nChans,
                          rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
                          beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
                          nPixRA, nPixDec, coordSys)
 
     # Print summary to user
-    catFile = dataPath.rstrip("/") + "/testCat.dat"
+    catFile = dataPath.rstrip("/") + "/testCat.txt"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
     print "-" * 80
@@ -167,12 +166,13 @@ def main():
     print
     print "./1_verify_image_data.py %s/" % dataPath.rstrip("/")
     print "./2_create_image_session.py %s/ %s/ %s %s" % \
-          (dataPath.rstrip("/"), sessionPath.rstrip("/"), catFile, sqlFile)
+          (sessionPath.rstrip("/"), dataPath.rstrip("/"), catFile, sqlFile)
     print "# Edit the file '%s/inputs.config' (optional)" \
           % sessionPath.rstrip("/")
     print "./3_extract_spectra.py %s/"  % sessionPath.rstrip("/")
     print "./4_do_RM-synthesis.py %s/" % sessionPath.rstrip("/")
     print "./5_do_RM-clean.py %s/" % sessionPath.rstrip("/")
+    print "./6_measure_complexity.py %s/" % sessionPath.rstrip("/")
     print
     print "NOTE: information and help on each script can be viewed by ",
     print "executing each\ncommand followed by a '-h' flag, e.g.: \n"
@@ -181,11 +181,10 @@ def main():
 
 
 #-----------------------------------------------------------------------------#
-def create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
+def create_IQU_fits_data(dataPath, srcLst, startFreq_Hz, endFreq_Hz, nChans,
                          rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
                          beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
                          nPixRA, nPixDec, coordSys="EQU"):
-
     """
     Create a set of FITS images corresponding to a Stokes I Q & U data-cube.
     """
@@ -202,11 +201,11 @@ def create_IQU_fits_data(dataPath, startFreq_Hz, endFreq_Hz, nChans,
     os.mkdir(dataPath)
 
     # Create a catalogue file
-    catFile = dataPath + "/testCat.dat"
+    catFile = dataPath + "/testCat.txt"
     FH = open(catFile, "w")
-    FH.write("#Name  x_deg  y_deg\n")
-    for i in range(len(srcInLst)):
-        FH.write("Source%d %f %f\n" % ((i+1), srcInLst[i][5], srcInLst[i][6]))
+    FH.write("#Name x_deg  y_deg\n")
+    for i in range(len(srcLst)):
+        FH.write("Source%d %f %f\n" % ((i+1), srcLst[i][5], srcLst[i][6]))
     FH.close()
 
     # Create a catalogue description file
@@ -252,8 +251,8 @@ y_deg double);
     spectraQLst = []
     spectraULst = []
     coordLst_pix = []
-    for row in srcInLst:
-        IArr_mJy, QArr_mJy, UArr_mJy =\
+    for row in srcLst:
+        IArr_Jy, QArr_Jy, UArr_Jy =\
                   create_IQU_spectra_RMthin(freqArr_Hz,
                                             row[0]/1e3,  # fluxI_mJy -> Jy
                                             row[1],      # SI
@@ -261,15 +260,15 @@ y_deg double);
                                             row[3],      # psi0_deg
                                             row[4],      # RM_radm2
                                             freq0_Hz)
-        spectraILst.append(IArr_mJy)
-        spectraQLst.append(QArr_mJy)
-        spectraULst.append(UArr_mJy)
+        spectraILst.append(IArr_Jy)
+        spectraQLst.append(QArr_Jy)
+        spectraULst.append(UArr_Jy)
         [ (x_pix, y_pix) ] = wcs2D.wcs_world2pix([ (row[5], row[6]) ], 0)
         coordLst_pix.append([x_pix, y_pix])
         
     # Loop through the frequency channels & create IQU files for each 
     for iChan in range(len(freqArr_Hz)):
-        for iSrc in range(len(srcInLst)):
+        for iSrc in range(len(srcLst)):
             params = [spectraILst[iSrc][iChan],  # amplitude
                       coordLst_pix[iSrc][0],     # X centre (pix)
                       coordLst_pix[iSrc][1],     # Y centre

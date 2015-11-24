@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Function perform RM-synthesis on spectra in the PPC.              #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 # TODO:                                                                       #
 #   * If doOverwrite is not set, read and return the existing result          #
@@ -106,6 +106,8 @@ def mod_do_RMsynth(specRec, sessionPath, doOverwrite=False, LF=None):
             PIArr_Jy = np.sqrt( np.power(QArr_Jy, 2.0) +
                                 np.power(UArr_Jy, 2.0) )
             rmsSpecQUAvg = (rmsQArr_Jy + rmsUArr_Jy)/2.0
+            if np.all(rmsSpecQUAvg==0.0):
+                rmsSpecQUAvg = np.ones_like(rmsSpecQUAvg)
                 
             # Calculate the weighting as 1/sigma^2 or 1
             if weightType=='Variance':

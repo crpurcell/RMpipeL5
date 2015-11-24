@@ -8,7 +8,7 @@
 #                                                                             #
 # REQUIRED: Requires numpy, astropy, matplotlib                               #
 #                                                                             #
-# MODIFIED: 12-November-2015 by cpurcell                                      #
+# MODIFIED: 24-November-2015 by cpurcell                                      #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -48,7 +48,7 @@
 #=============================================================================#
 
 # Default session
-defaultSessionDir = "testSession"
+defaultSessionDir = "testSessionImage"
 
 # Window geometry
 geometryBrowseWin = "1024x700"

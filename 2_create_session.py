@@ -3,20 +3,20 @@
 #                                                                             #
 # NAME:     create_image_session.py                                           #
 #                                                                             #
-# USAGE:    create_image_session.py PATH/TO/DATA  PATH/TO/SESSION CATFILE     #
+# USAGE:    create_image_session.py PATH/TO/SESSION PATH/TO/DATA CATFILE      #
 #                                                        [CATFORMATFILE]      #
 #                                                                             #
 # PURPOSE:  Create a new pipeline processing session in a new directory.      #
 #           A dataset and source catalogue must be chosen at this time and    #
 #           linked to the session. The data must have been processed using    #
-#           the 'verify_image_data.py' script. The ASCII catalogue file is    #
+#           the 'verify_ascii_data.py' script. The ASCII catalogue file is    #
 #           described by a SQL statement in the optional CATFORMATFILE and    #
-#           defaults to a minimal format 'name, x_deg, y_deg'.                #
+#           defaults to a minimal format 'name, fileName, x_deg, y_deg'.      #
 #           This script performs some sanity-checks and creates a pipeline    #
 #           input file with sensible input parameters determined from the     #
 #           properties of the data.                                           #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 20-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -44,7 +44,6 @@
 #                                                                             #
 #=============================================================================#
 
-
 import os
 import sys
 import shutil
@@ -67,6 +66,7 @@ from Imports.util_PPC import load_vector_fail
 from Imports.util_PPC import deg2dms
 from Imports.util_PPC import cat_to_recarray
 from Imports.util_PPC import write_dictfile
+from Imports.util_PPC import read_statusfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import create_db
@@ -117,7 +117,7 @@ def main():
     
     Example:
 
-    ./2_create_image_session.py testData/ testSession/ testData/testCat.dat
+    ./2_create_image_session.py testSession/ testData/ testData/testCat.dat
                                 testData/testCatDesc.sql
     """
     
@@ -126,10 +126,10 @@ def main():
                                  formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("-o", dest="doOverwrite", action="store_true",
                         help="Overwrite (delete) existing session")
-    parser.add_argument("dataPath", metavar="PATH/TO/DATA", nargs=1,
-                        help="Path to data directory [no default]")
     parser.add_argument("sessionPath", metavar="PATH/TO/SESSION", nargs=1,
                         help="Path to the new session directory [no default]")
+    parser.add_argument("dataPath", metavar="PATH/TO/DATA", nargs=1,
+                        help="Path to data directory [no default]")
     parser.add_argument("catPath", metavar="CATFILE", nargs=1,
                         help="Name of the ASCII catalogue file [no default]")
     parser.add_argument("catFormatPath", metavar="CATFORMATFILE", nargs="?",
@@ -143,12 +143,12 @@ def main():
     catFormatPath = args.catFormatPath
 
     # Call the create_session function
-    create_image_session(dataPath, sessionPath, catPath, catFormatPath,
+    create_session(dataPath, sessionPath, catPath, catFormatPath,
                          doOverwrite)
 
 
 #-----------------------------------------------------------------------------#
-def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
+def create_session(dataPath, sessionPath, catPath, catFormatPath,
                          doOverwrite=False):
     """
     Create an image session directory and session database file. Load a source
@@ -159,7 +159,6 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     dataPath = dataPath.rstrip("/")
     sessionPath = sessionPath.rstrip("/")
     catPath = catPath.rstrip("/")
-    pDict = {}
         
     # Create a new session directory. Erase, or exit if it already exists
     sessionRootDir, sessionName = os.path.split(sessionPath)
@@ -194,24 +193,38 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     statusDict = {"session": 0,
                   "extract": 0,
                   "rmsynth": 0,
-                  "rmclean": 0}
+                  "rmclean": 0,
+                  "complexity": 0}
     write_dictfile(statusDict, sessionPath + "/status.json")
     
     # Check other inputs exist
     dataPath = "." if dataPath=="" else dataPath
     fail_not_exists(dataPath, "directory")
-    pDict["dataPath"] = dataPath
     catRootDir, catFile = os.path.split(catPath)
     fail_not_exists(catPath)
     catFormatRootDir, catFormatFile = os.path.split(catFormatPath)
     fail_not_exists(catFormatPath)
 
-    # Check that the catalogue description file has X and Y columns
+    # Check for the datatype file in the data directory
+    inTypeFile = dataPath + "/dataType.txt"
+    if not os.path.exists(inTypeFile):
+        log_fail(LF, "File containing the data type is missing: '%s'." \
+                 % inTypeFile)
+    dataType = read_statusfile(inTypeFile)
+
+    # Check for the frequency sampling file in the data directory
+    inFreqFile = dataPath + "/freqs_Hz.txt"
+    if not os.path.exists(inFreqFile):
+        log_fail(LF, "File containing the frequency vector is missing: '%s'." \
+                 % inFreqFile)
+        
+    # Check that the catalogue description file has required columns
     log_wr(LF, "Parsing catalogue description file '%s'" % catFormatPath)
     catDtypeDict, catSQLdict = schema_to_tabledef(catFormatPath)
     catHasUniqueName = False
     catHasX = False
     catHasY = False
+    catHasFile = False
     for e in catDtypeDict["sourceCat"]:
         if e[0]=="x_deg":
             catHasX = True
@@ -219,10 +232,16 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
             catHasY = True
         if e[0]=="uniqueName":
             catHasUniqueName = True
+        if e[0]=="fileName":
+            catHasFile = True
+        
     if catHasX is False:
         log_fail(LF, "Catalogue description missing 'x_deg' column.")
     if catHasY is False:
         log_fail(LF, "Catalogue description missing 'y_deg' column.")
+    if dataType in ["ASCII_spectra", "FITS_cubes"]:
+        if catHasFile is False:
+            log_fail(LF, "Catalogue description missing 'fileName' column.")
     if catHasUniqueName is True:
         # Make sure uniqueName is a primary key
         catSQLdict["sourceCat"] = mk_primary_key(catSQLdict["sourceCat"], 
@@ -230,13 +249,13 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
     else:
         # Add a new uniqueName column to the source catalogue
         catDtypeDict, catSQLdict = \
-            sql_create_to_numpy_dtype(catSQLdict["sourceCat"],
+                 sql_create_to_numpy_dtype(catSQLdict["sourceCat"],
                  addColDict={"sourceCat":"uniqueName varchar(20) PRIMARY KEY"})
+    log_wr(LF, "Cat description contains 'x_deg' and 'y_deg' columns.")
     if catHasUniqueName:
-        log_wr(LF, "Cat description contains 'uniqueName', 'x_deg' " + 
-               "and 'y_deg' columns.")
-    else:
-        log_wr(LF, "Cat description contains 'x_deg' and 'y_deg' columns.")
+        log_wr(LF, "Cat description contains 'uniqueName' column.")
+    if catHasFile:
+        log_wr(LF, "Cat description contains 'uniqueName' column.")
 
     # Read the input catalogue to a record array
     log_wr(LF, "Reading the catalogue into memory ...")
@@ -294,22 +313,6 @@ def create_image_session(dataPath, sessionPath, catPath, catFormatPath,
         log_fail(LF, traceback.format_exc())    
     cursor.close()
     conn.close()
-    
-    # Check for the frequency sampling file in the data directory
-    inFreqFile = dataPath + "/freqs_Hz.txt"
-    if os.path.exists(inFreqFile):
-        pDict["inFreqFile"] = "freqs_Hz.txt"
-    else:
-        log_fail(LF, "File containing the frequency vector is missing: '%s'." \
-                 % inFreqFile)
-        
-    # Check for the datatype file in the data directory
-    inTypeFile = dataPath + "/dataType.txt"
-    if os.path.exists(inTypeFile):
-        pDict["inTypeFile "] = "dataType.txt"
-    else:
-        log_fail(LF, "File containing the data type is missing: '%s'." \
-                 % inTypeFile)
 
     # Create a new pipeline input object. Default parameters are taken from
     # the file 'Imports/templates/defaultInputs.config'

@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires numpy and astropy.                                       #
 #                                                                             #
-# MODIFIED: 12-November-2015 by C. Purcell                                    #
+# MODIFIED: 20-November-2015 by C. Purcell                                    #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #

@@ -8,7 +8,7 @@
 # PURPOSE:  Extract spectra from the I, Q & U FITS files linked to a          #
 #           RM pipeline session.                                              #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 # TODO:                                                                       #
 #                                                                             #
@@ -42,7 +42,6 @@
 #                                                                             #
 #=============================================================================#
 
-
 import os
 import sys
 import shutil
@@ -59,12 +58,14 @@ from Imports.util_PPC import log_fail
 from Imports.util_PPC import load_vector_fail
 from Imports.util_PPC import read_dictfile
 from Imports.util_PPC import write_dictfile
+from Imports.util_PPC import read_statusfile
 
 from Imports.util_DB import register_sqlite3_numpy_dtypes
 from Imports.util_DB import select_into_arr
 from Imports.util_DB import insert_arr_db
 
-from Imports.module_spec_extract_area import mod_spec_extract
+from Imports.module_spec_extract_area import mod_spec_extract_area
+from Imports.module_spec_extract_ascii import mod_spec_extract_ascii
 
 # Constants
 C = 2.99792458e8
@@ -84,7 +85,7 @@ def main():
     
     # Help string to be shown using the -h option
     descStr = """
-    Loop through the FITS files linked to the current session and extract I, Q
+    Loop through the data files linked to the current session and extract I, Q
     and U data at the positions of sources. The catalogue should already
     exist in the database, loaded by the 'create_image_session.py' script.
     That script has also created a 'PATH/TO/SESSION/inputs.config' file, used
@@ -167,30 +168,40 @@ def run_spectral_extraction(sessionPath, doOverwrite=False, doReset=False):
     dataPath = pDict["dataPath"].rstrip("/")
     fail_not_exists(dataPath, "directory", LF)
 
-    # Read in the lists of FITS files from the datasets list file
-    dataListFileI = dataPath + "/fileLstI.txt"
-    fail_not_exists(dataListFileI, "file", LF)
-    fitsLstI = load_vector_fail(dataListFileI, "str", True, LF)
-    fitsLstI = [dataPath + "/" + x for x in fitsLstI]
-    dataListFileQ = dataPath + "/fileLstQ.txt"
-    fail_not_exists(dataListFileQ, "file", LF)
-    fitsLstQ = load_vector_fail(dataListFileQ, "str", True, LF)
-    fitsLstQ = [dataPath + "/" + x for x in fitsLstQ]
-    dataListFileU = dataPath + "/fileLstU.txt"
-    fail_not_exists(dataListFileU, "file", LF)
-    fitsLstU = load_vector_fail(dataListFileU, "str", True, LF)
-    fitsLstU = [dataPath + "/" + x for x in fitsLstU]
+    # Check for the datatype file in the data directory
+    inTypeFile = dataPath + "/dataType.txt"
+    if not os.path.exists(inTypeFile):
+        log_fail(LF, "File containing the data type is missing: '%s'." \
+                 % inTypeFile)
+    dataType = read_statusfile(inTypeFile)
 
-    # Check that the correct numbers of planes are reported
-    if len(fitsLstI)<2 or len(fitsLstQ)<2 or len(fitsLstU)<2:
-        log_wr(LF, "Err: Dataset reports too few FITS files:")
-        log_fail(LF, "I(%d), Q(%s), U(%s)" % (len(fitsLstI), len(fitsLstQ),
-                                              len(fitsLstU)))
+    # Special processing for data type "FITS_planes"
+    if dataType=="FITS_planes":
+        
+        # Read in the lists of FITS files from the datasets list file
+        dataListFileI = dataPath + "/fileLstI.txt"
+        fail_not_exists(dataListFileI, "file", LF)
+        fitsLstI = load_vector_fail(dataListFileI, "str", True, LF)
+        fitsLstI = [dataPath + "/" + x for x in fitsLstI]
+        dataListFileQ = dataPath + "/fileLstQ.txt"
+        fail_not_exists(dataListFileQ, "file", LF)
+        fitsLstQ = load_vector_fail(dataListFileQ, "str", True, LF)
+        fitsLstQ = [dataPath + "/" + x for x in fitsLstQ]
+        dataListFileU = dataPath + "/fileLstU.txt"
+        fail_not_exists(dataListFileU, "file", LF)
+        fitsLstU = load_vector_fail(dataListFileU, "str", True, LF)
+        fitsLstU = [dataPath + "/" + x for x in fitsLstU]
 
-    # Get the frequency vector from the text file
-    inFreqFile = dataPath + "/freqs_Hz.txt"
-    fail_not_exists(inFreqFile, "file", LF)
-    freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
+        # Check that the correct numbers of planes are reported
+        if len(fitsLstI)<2 or len(fitsLstQ)<2 or len(fitsLstU)<2:
+            log_wr(LF, "Err: Dataset reports too few FITS files:")
+            log_fail(LF, "I(%d), Q(%s), U(%s)" % (len(fitsLstI), len(fitsLstQ),
+                                                  len(fitsLstU)))
+
+        # Get the frequency vector from the text file
+        inFreqFile = dataPath + "/freqs_Hz.txt"
+        fail_not_exists(inFreqFile, "file", LF)
+        freqArr_Hz = load_vector_fail(inFreqFile, "float32", False, LF)
     
     # (Re)create the output directory if necessary
     outDataDir = sessionPath + "/OUT"
@@ -213,11 +224,17 @@ def run_spectral_extraction(sessionPath, doOverwrite=False, doReset=False):
     except Exception:
         log_fail(LF, "Err: Failed to connect to '%s'." % dbFile)
     
-    # Load the coordinates from the catalogue into memory
-    sql = """
-    SELECT uniqueName, x_deg, y_deg
-    FROM sourceCat
-    """
+    # Load the catalogue into memory
+    if dataType=="FITS_planes":
+        sql = """
+        SELECT uniqueName, x_deg, y_deg
+        FROM sourceCat
+        """
+    elif dataType=="ASCII_spectra":
+        sql = """
+        SELECT uniqueName, fileName
+        FROM sourceCat
+        """
     log_wr(LF, "Loading the catalogue from the database.")
     catRec = select_into_arr(cursor, sql)
     nRows = len(catRec)
@@ -226,16 +243,24 @@ def run_spectral_extraction(sessionPath, doOverwrite=False, doReset=False):
     log_wr(LF, "%s rows returned." % nRows)
     
     # RUN SPECTRAL EXTRACTION MODULE -----------------------------------------#
-    specRec = mod_spec_extract(catRec,
-                               fitsLstI,
-                               fitsLstQ,
-                               fitsLstU,
-                               freqArr_Hz=freqArr_Hz,
-                               sumBox_pix=int(pDict["sumBoxPix"]),
-                               polyOrd=int(pDict["polyOrd"]),
-                               outDataDir=outDataDir,
-                               doOverwrite=doOverwrite,
-                               LF=LF)
+    if dataType=="FITS_planes":
+        specRec = mod_spec_extract_area(catRec,
+                                        fitsLstI,
+                                        fitsLstQ,
+                                        fitsLstU,
+                                        freqArr_Hz=freqArr_Hz,
+                                        sumBox_pix=int(pDict["sumBoxPix"]),
+                                        polyOrd=int(pDict["polyOrd"]),
+                                        outDataDir=outDataDir,
+                                        doOverwrite=doOverwrite,
+                                        LF=LF)
+    elif dataType=="ASCII_spectra":
+        specRec = mod_spec_extract_ascii(catRec,
+                                         dataPath,
+                                         polyOrd=int(pDict["polyOrd"]),
+                                         outDataDir=outDataDir,
+                                         doOverwrite=doOverwrite,
+                                         LF=LF)
         
     # Write the relevant tables to the database
     insert_arr_db(cursor, specRec, "spectraParms")

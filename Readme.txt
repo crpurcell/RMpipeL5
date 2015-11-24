@@ -8,16 +8,27 @@
 # Execute the following Python scripts in order to create a test dataset and
 # run the Level-5 RM-pipeline on the data.
 
-./0_mk_test_image_data.py testData/
-./1_verify_image_data.py testData/
-./2_create_image_session.py -o testData/ testSession/ testData/testCat.dat testData/testCatDesc.sql
 
-#> Edit the file 'testSession/inputs.config' to modify default pipeline inputs.
+./0_mk_test_ascii_data.py testASCIIData/
+./1_verify_ascii_data.py testASCIIData/ 
+./2_create_session.py testSessionASCII/ testASCIIData/ testASCIIData/testCat.txt testASCIIData/testCatDesc.sql
+#> Edit the file 'testSessionASCII/inputs.config' to modify default pipeline inputs.
+./3_extract_spectra.py testSessionASCII/
+./4_do_RM-synthesis.py testSessionASCII/
+./5_do_RM-clean.py testSessionASCII/
+./6_measure_complexity.py testSessionASCII/
+./rmPipeViewer.py
 
-./3_extract_spectra.py testSession/
-./4_do_RM-synthesis.py testSession/
-./5_do_RM-clean.py testSession/
-./6_measure_complexity.py testSession/
+# OR:
+
+./0_mk_test_image_data.py testImageData/
+./1_verify_image_data.py testImageData/
+./2_create_session.py testSessionImage/ testImageData/ testImageData/testCat.txt testImageData/testCatDesc.sql
+#> Edit the file 'testSessionImage/inputs.config' to modify default pipeline inputs.
+./3_extract_spectra.py testSessionImage/
+./4_do_RM-synthesis.py testSessionImage/
+./5_do_RM-clean.py testSessionImage/
+./6_measure_complexity.py testSessionImage/
 ./rmPipeViewer.py
 
 # Note: a '-h' argument after most scripts will print help & usage information.
