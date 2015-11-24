@@ -8,7 +8,7 @@
 #                                                                             #
 # PURPOSE:  Read and verify Stokes I, Q & U spectra in ASCII '.dat' files.    #
 #                                                                             #
-# MODIFIED: 20-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -137,17 +137,17 @@ def verify_image_data(dataPath, pat, listFile=None, col=0):
         # Read in the spectra
         multiArr = np.loadtxt(dataLst[i], unpack=True)
         nCols = multiArr.shape[0]
-        if nCols!=4:
-            print "Err: Expecting 4 columns in ASCII file, found %d." % nCols
+        if not (nCols==4 or nCols==7):
+            print "Err: Expecting 4 or 7 columns in data, found %d." % nCols
             continue
         
-        # Sort the spectra into ascending frequency order
+        # Sort the spectra into ascending frequency order if necessary
         idx = np.argsort(multiArr[0])
         if not np.all(idx==np.indices(multiArr[0].shape)[0]):
             multiArr = multiArr[:, idx]
             print "Warn: Overwriting '%s' with sorted version." % dataLst[i]
             np.savetxt(dataLst[i], multiArr.transpose())
-        freqArr_Hz, IArr_Jy, QArr_Jy, UArr_Jy = multiArr
+        freqArr_Hz = multiArr[0]
 
         # Add to the catalogue file
         catFH.write("Source%d  %s %f %f\n" % ((i+1), dataLst[i], 0.0, 0.0))

@@ -10,7 +10,7 @@
 #           frequency and Stokes vesctors. Edit the values at the top of the  #
 #           script and run.                                                   #
 #                                                                             #
-# MODIFIED: 20-November-2015 by C. Purcell                                    #
+# MODIFIED: 24-November-2015 by C. Purcell                                    #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -148,7 +148,7 @@ def main():
     print
     print "./1_verify_ascii_data.py %s/" % dataPath.rstrip("/")
     print "./2_create_ascii_session.py %s/ %s/ %s %s" % \
-          sessionPath.rstrip("/"), (dataPath.rstrip("/"),  catFile, sqlFile)
+          (sessionPath.rstrip("/"), dataPath.rstrip("/"),  catFile, sqlFile)
     print "# Edit the file '%s/inputs.config' (optional)" \
           % sessionPath.rstrip("/")
     print "./3_extract_spectra.py %s/"  % sessionPath.rstrip("/")
@@ -210,7 +210,7 @@ y_deg double);
                                            srcLst[i][3],      # psi0_deg
                                            srcLst[i][4],      # RM_radm2
                                            freq0_Hz)
-
+        
         # Add the Gaussian noise 
         IArr_Jy += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
                                     size=IArr_Jy.shape)
@@ -218,13 +218,17 @@ y_deg double);
                                     size=QArr_Jy.shape)
         UArr_Jy += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
                                     size=UArr_Jy.shape)
+        dIArr_Jy = np.ones_like(IArr_Jy) * rmsNoise_mJy/1e3  
+        dQArr_Jy = np.ones_like(QArr_Jy) * rmsNoise_mJy/1e3
+        dUArr_Jy = np.ones_like(UArr_Jy) * rmsNoise_mJy/1e3
         
         # Save spectra to disk
         outFileName = "Source%d.dat" % (i+1)
         outFilePath = dataPath + "/" + outFileName
         print "Writing ASCII file '%s' ..." % outFileName,
         np.savetxt(outFilePath,
-                   np.column_stack((freqArr_Hz, IArr_Jy, QArr_Jy, UArr_Jy)))
+                   np.column_stack((freqArr_Hz, IArr_Jy, QArr_Jy, UArr_Jy,
+                                    dIArr_Jy, dQArr_Jy, dUArr_Jy)))
         print "done."
         
         # Add to the catalogue file
