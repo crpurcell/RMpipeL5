@@ -371,10 +371,8 @@ class DataManager:
         sql = """
         SELECT
         sourceCat.uniqueName,
-        spectraParms.fluxMedI_Jybm as fluxI_mJy,
-        dirtyFDFparms.ampPeakPIfit_Jybm as peakPI_mJybm,
+        dirtyFDFparms.ampPeakPIfit_Jybm*1e3 as peakPI_mJybm,
         dirtyFDFparms.phiPeakPIfit_rm2 as RM_radm2,
-        dirtyFDFparms.snrPIfit as SNR,
         polAngleFit_deg as PA_deg
         FROM sourceCat
         LEFT JOIN spectraParms

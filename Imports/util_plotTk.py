@@ -72,6 +72,7 @@ import sys
 import math as m
 import numpy as np
 import StringIO
+import traceback
 import astropy.io.fits as pf
 import matplotlib as mpl
 from matplotlib.ticker import MaxNLocator
@@ -81,6 +82,7 @@ from matplotlib.figure import Figure
 
 from util_plotFITS import plot_fits_map
 from util_PPC import xfloat
+from normalize import APLpyNormalize
 
 # Alter the default linewidths etc.
 mpl.rcParams['lines.linewidth'] = 1.0
@@ -107,7 +109,7 @@ def xint(x, default=None):
 def filter_range_indx(a, dataMin=None, dataMax=None, filterNans=False):
     """Return a boolean array [True, ...] where data falls outside of the
     range [dataMin <= a <= dataMax]."""
-    
+
     if filterNans:
         iNaN = np.zeros_like(a, dtype="bool")
     else:
@@ -647,6 +649,9 @@ def plot_hist4_ax(ax, popLst, nBins=10, doXlog=False, doYlog=False, styIndx=0,
               "bl": "lower left", "br": "lower right"}
     legLoc = locTab[legLoc]
 
+    # TODO: Remove extra columns in the recarrays
+
+
     # Determine the max and min of the ensemble population
     popEnsemble = np.concatenate(popLst).astype(np.float)
     xMinData = float(np.nanmin(popEnsemble))      
@@ -761,6 +766,168 @@ def plot_hist4_ax(ax, popLst, nBins=10, doXlog=False, doYlog=False, styIndx=0,
 
     # Format tweaks
     tweakAxFormat(ax, showLeg=True, loc=legLoc)
+
+
+#-----------------------------------------------------------------------------#
+def plot_scatter4_ax(ax, popLst, doXlog=False, doYlog=False, zPower=1.0,
+                     styIndx=0, xMin=None, xMax=None, yMin=None,
+                     yMax=None, zMin=None, zMax=None, xLabel="", yLabel="",
+                     zLabel="", title="", legLabLst=[], showCbar=False,
+                     show11Line=False, legLoc="tr", verbose=False):
+
+    # Format of the scatter points and shading.
+    # Up to four populations are supported and two alternative styles
+    edgeColourLst = [['black', 'black', 'black', 'black'],
+                     ['black','red', 'green', 'blue']]
+    fillColourLst = [['black', 'red', 'green', 'blue'],
+                     ['none', 'none', 'none', 'none']]
+    symbolLst =     [['o', 's', 'd', '^'],
+                     ['o', '+', 's', 'd']]
+    symbolSize =    [[45, 30, 30, 30],
+                     [45, 80, 30, 30]]
+
+    # Translate the legend location code
+    if legLoc not in ["tl", "tr", "bl", "br"]: legLoc = "tr"
+    locTab = {"tl": "upper left", "tr": "upper right",
+              "bl": "lower left", "br": "lower right"}
+    legLoc = locTab[legLoc]
+
+    # Separate out the X Y and Z data
+    xLst = []
+    yLst = []
+    zLst = []
+    for i in range(len(popLst)):
+        colNames = popLst[i].dtype.names
+        nCols = len(colNames)
+        xLst.append(popLst[i][colNames[0]])
+        yLst.append(popLst[i][colNames[1]])
+        if nCols>2:
+            yLst.append(popLst[i][colNames[2]])
+
+    # Determine the max and min of the ensemble population
+    xEnsemble = np.concatenate(xLst).astype(np.float)
+    signX = np.sign(xEnsemble)[0]
+    xMinData = float(np.nanmin(xEnsemble))
+    xMaxData = float(np.nanmax(xEnsemble))
+    yEnsemble = np.concatenate(yLst).astype(np.float)
+    signY = np.sign(yEnsemble)[0]
+    yMinData = float(np.nanmin(yEnsemble))
+    yMaxData = float(np.nanmax(yEnsemble))
+    if not zLst==[]:
+        zEnsemble = np.concatenate(zLst).astype(np.float)
+        signZ = np.sign(zEnsemble)[0]
+        zMinData = float(np.nanmin(zEnsemble))
+        zMaxData = float(np.nanmax(zEnsemble))
+
+    # All valid data must have the same sign for log plots
+    if doXlog:
+        if not (xMinData<0) == (xMaxData<0):
+            print "\nErr: for log X-axis all data must have the same sign!"
+            sys.exit()
+    if doYlog:
+        if not (yMinData<0) == (yMaxData<0):
+            print "\nErr: for log Y-axis all data must have the same sign!"
+            sys.exit()
+    if zLst is not None and zPower!=1.0:
+        if not (zMinData<0) == (zMaxData<0):
+            print "\nErr: for log Z-axis all data must have the same sign!"
+            sys.exit()
+
+    # Set the plotting ranges (& colour limits)
+    if doXlog:
+        xFac = abs(xMaxData/xMinData)
+        if xMin is None:
+            xMin = xMinData/(1+ m.log10(xFac)*0.1)
+        if xMax is None:
+            xMax = xMaxData*(1+ m.log10(xFac)*0.1)
+    else:
+        xPad = abs(xMaxData - xMinData) * 0.04
+        if xMin is None:
+            xMin = xMinData - xPad
+        if xMax is None:
+            xMax = xMaxData + xPad
+    if doYlog:
+        yFac = abs(yMaxData/yMinData)
+        if yMin is None:
+            yMin = yMinData/(1+ m.log10(yFac)*0.1)
+        if yMax is None:
+            yMax = yMaxData*(1+ m.log10(yFac)*0.1)
+    else:
+        yPad = abs(yMaxData - yMinData) * 0.05
+        if yMin is None:
+            yMin = yMinData - yPad
+        if yMax is None:
+            yMax = yMaxData + yPad
+
+    # Set the z-colour range
+    if not zLst==[]:
+        if not np.all(np.isnan(zEnsemble)):
+            if zMin is None:
+                zMin = zMinData
+            if zMax is None:
+                zMax = zMaxData
+
+    # Set the axis formatter for log scale axes
+    if doXlog:
+        ax.set_xscale('log')
+        majorFormatterX = FuncFormatter(label_format_exp(5.0))
+        ax.xaxis.set_major_formatter(majorFormatterX)
+    if doYlog:
+        ax.set_yscale('log')
+        majorFormatterY = FuncFormatter(label_format_exp(3.0))
+        ax.yaxis.set_major_formatter(majorFormatterY)
+    norm = APLpyNormalize(stretch='power', exponent=zPower,
+                                vmin=zMin, vmax=zMax)
+
+    # Plot each set of points in turn
+    sc3D = None
+    zMap = 'r'
+    for i in range(len(xLst)):
+
+        # Map the z axis to the colours
+        if not zLst==[]:
+            if np.all(np.isnan(zLst[i])):
+                zMap = fillColourLst[styIndx][i]
+            else:
+                zMap = zLst[i]
+
+        # Set the legend labels
+        try:
+            legLabel = legLabLst[i]
+            if legLabLst[i]=="":
+                raise Exception
+        except Exception:
+            legLabel = "Query %s" % (i+1)
+
+        # Add the points to the plot
+        sc = ax.scatter(xLst[i], yLst[i],
+                        marker = symbolLst[styIndx][i],
+                        s = symbolSize[styIndx][i],
+                        c = zMap,
+                        norm = norm,
+                        vmin = zMin,
+                        vmax = zMax,
+                        linewidths = 0.5,
+                        edgecolors=edgeColourLst[styIndx][i],
+                        label=legLabel)
+        if not zLst==[]:
+            if not np.all(np.isnan(zLst[i])):
+                sc3D = sc
+        
+    # Set the X axis limits
+    ax.set_xlim(xMin, xMax)
+    ax.set_ylim(yMin, yMax)
+    
+    # Draw the labels on the plot 
+    ax.set_xlabel(xLabel)
+    ax.set_ylabel(yLabel)
+    ax.set_title(title)
+
+    # Format tweaks
+    tweakAxFormat(ax, showLeg=True, loc=legLoc)
+
+    
+
 
 
     
@@ -1233,17 +1400,21 @@ def plotStampP(dataMan, indx, io='fig'):
 
 #-----------------------------------------------------------------------------#
 def plotSctHstQuery(dataMan, plotParm, io='fig'):
-    
+
+    # What type of plot are we creating?
+    plotType = plotParm.configDict.get("TYPE", "Histogram")
     
     # Execute each query in turn and store results in list of recarrays
     popLst = []
+    names = []
+    nCols = 0
     for i in range(len(plotParm.queryLst)-1,-1,-1):
         sql =  plotParm.queryLst[i]
         try:
             resultArr = dataMan.query_database(sql)
-            names = resultArr.dtype.names
-            xLabel = names[0]
-            popLst.append(resultArr[xLabel])
+            colNames = resultArr.dtype.names
+            nCols = max(len(colNames), nCols)
+            popLst.append(resultArr)            
         except Exception:
             popLst.append(None)
             print "\nWarn: failed to execute query:"
@@ -1252,45 +1423,94 @@ def plotSctHstQuery(dataMan, plotParm, io='fig'):
     popLst.reverse()
     popLst = popLst[:4]
 
-    # Default to the column header
-    if plotParm.configDict["XLABEL"]=="":
-         plotParm.configDict["XLABEL"] = xLabel
-
     # Filter data for limits given in the driving file (default None)
     xMinDataCmd = plotParm.configDict.get("XDATAMIN", None)
     xMaxDataCmd = plotParm.configDict.get("XDATAMAX", None)
     xMinData = xfloat(xMinDataCmd, None)
     xMaxData = xfloat(xMaxDataCmd, None)
+    yMinDataCmd = plotParm.configDict.get("YDATAMIN", None)
+    yMaxDataCmd = plotParm.configDict.get("YDATAMAX", None)
+    yMinData = xfloat(yMinDataCmd, None)
+    yMaxData = xfloat(yMaxDataCmd, None)
+    zMinDataCmd = plotParm.configDict.get("ZDATAMIN", None)
+    zMaxDataCmd = plotParm.configDict.get("ZDATAMAX", None)
+    zMinData = xfloat(zMinDataCmd, None)
+    zMaxData = xfloat(zMaxDataCmd, None)
     for i in range(len(popLst)):
-        msk = filter_range_indx(popLst[i], xMinData, xMaxData)
+        msk = filter_range_indx(popLst[i][colNames[0]], xMinData, xMaxData)
+        if plotType=="Scatter" and nCols>1:
+            msk += filter_range_indx(popLst[i][colNames[1]], yMinData, yMaxData)
+        if plotType=="Scatter" and nCols>2:
+            msk += filter_range_indx(popLst[i][colNames[2]], zMinData, zMaxData)
         popLst[i] = popLst[i][~msk]
-    
+        
     # Labels from driving file (default column name in DB)
-    xLabel = plotParm.configDict.get("XLABEL", xLabel)
+    if plotParm.configDict["XLABEL"]=="":
+        plotParm.configDict["XLABEL"] = colNames[0]
+    xLabel = plotParm.configDict.get("XLABEL", colNames[0])
+    if plotParm.configDict["YLABEL"]=="":
+        if plotType=="Scatter":
+            plotParm.configDict["YLABEL"] = colNames[1]
+        else:
+            plotParm.configDict["YLABEL"] = "Count"
     yLabel = plotParm.configDict.get("YLABEL", "Count")
+    if plotParm.configDict["ZLABEL"]=="":
+        if plotType=="Scatter":
+            plotParm.configDict["ZLABEL"] = colNames[2]
+    zLabel = plotParm.configDict.get("ZLABEL", "")
     plotTitle = plotParm.configDict.get("TITLE", "")
+
+    # Other driving parameters    
     nBins = xint(plotParm.configDict.get("NBINS", 10))
+    doXlog = xint(plotParm.configDict.get("DOLOGX", 0))
+    doYlog = xint(plotParm.configDict.get("DOLOGY", 0))
+    zPower = xfloat(plotParm.configDict.get("ZPOWER", 1.0))
 
     # Setup the figure
     fig = Figure()
     fig.set_size_inches([8,8])
-        
-    # Bin the data and create the histogram
     ax = fig.add_subplot(111)
-    plot_hist4_ax(ax,
-                  popLst = popLst,
-                  nBins = int(plotParm.configDict["NBINS"]),
-                  doXlog = int(plotParm.configDict["DOLOGX"]),
-                  doYlog = int(plotParm.configDict["DOLOGY"]),
-                  styIndx = 0,
-                  xMin = None,
-                  xMax = None,
-                  yMax = None,
-                  xLabel = plotParm.configDict["XLABEL"],
-                  yLabel = "Count",
-                  title = plotParm.configDict["TITLE"],
-                  legLabLst = plotParm.queryLabLst)
-    
+
+    # Bin the data and create the histogram
+    if plotType=="Histogram":
+        plot_hist4_ax(ax,
+                      popLst = popLst,
+                      nBins = nBins,
+                      doXlog = doXlog,
+                      doYlog = doYlog,
+                      styIndx = 0,
+                      xMin = None,
+                      xMax = None,
+                      yMax = None,
+                      xLabel = xLabel,
+                      yLabel = yLabel,
+                      title = plotTitle,
+                      legLabLst = plotParm.queryLabLst)
+    if plotType=="Scatter":    
+        plot_scatter4_ax(ax,
+                         popLst = popLst,
+                         doXlog = doXlog,
+                         doYlog = doYlog,
+                         zPower = zPower,
+                         styIndx = 0,
+                         xMin = None,
+                         xMax = None,
+                         yMin = None,
+                         yMax = None,
+                         zMin = None,
+                         zMax = None,
+                         xLabel = xLabel,
+                         yLabel = yLabel,
+                         zLabel = zLabel,
+                         title = plotTitle,
+                         legLabLst = plotParm.queryLabLst,
+                         showCbar = False,
+                         show11Line = False,
+                         legLoc = "tr",
+                         verbose = False)
+
+
+        
     # Write to the pipe
     if io=='string':
         sio = StringIO.StringIO()

@@ -5,7 +5,7 @@
 #                                                                             #
 # PURPOSE:  Functions to interface with a sqlite3 database.                   #
 #                                                                             #
-# MODIFIED: 19-November-2015 by C. Purcell                                    #
+# MODIFIED: 06-December-2015 by C. Purcell                                    #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -51,6 +51,7 @@ import shutil
 import re
 import numpy as np
 import sqlite3
+import traceback
 
 from util_rec import fields_view
 
@@ -142,10 +143,8 @@ def update_arr_db(cursor, recArr, tabName, keyName, fieldNameLst=None):
     
 #-----------------------------------------------------------------------------#
 def select_into_arr(cursor, sql, args=[]):
-    """
-    Run a SQL query and return a numpy recordarray.
-    """
-
+    """Run a SQL query and return a numpy record array."""
+    
     if args == []:
         cursor.execute(sql)
     else:
@@ -160,6 +159,7 @@ def select_into_arr(cursor, sql, args=[]):
         return rows
     except Exception:
         print "WARNING: failed to convert SQL result to a recarray!"
+        print traceback.format_exc()
         return None
 
 
@@ -308,10 +308,8 @@ def mk_primary_key(sqlCreateStr, colName):
 
 #-----------------------------------------------------------------------------#
 def get_tables_description(cursor):
-    """
-    Return a dictionary contain PRAGMA table_info(tabName) results for all
-    tables in a SQLite database. The dictionary is indexed by table name.
-    """
+    """Return a dictionary contain PRAGMA table_info(tabName) results for all
+    tables in a SQLite database. The dictionary is indexed by table name."""
     
     sql = "SELECT name FROM sqlite_master WHERE type='table';"
     tabNameArr = select_into_arr(cursor, sql)['name']
@@ -321,3 +319,4 @@ def get_tables_description(cursor):
         descDict[tabName] = select_into_arr(cursor, sql)
 
     return descDict
+
