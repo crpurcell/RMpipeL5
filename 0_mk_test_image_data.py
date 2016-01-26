@@ -10,7 +10,7 @@
 #           containing unresolved sources. Edit the values at the top of the  #
 #           script and run.                                                   #
 #                                                                             #
-# MODIFIED: 24-November-2015 by C. Purcell                                    #
+# MODIFIED: 26-January-2016 by C. Purcell                                     #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -41,11 +41,16 @@
 # Example session path
 sessionPath = "testSessionImage/"
 
-# Data cube parameters
-startFreq_Hz =  1.0e9
-endFreq_Hz = 3.0e9
+# Frequency parameters
+startFreq_Hz = 0.7e9
+endFreq_Hz =  1.8e9
 nChans = 30
-rmsNoise_mJy = 0.1
+
+# Noise parameters
+rmsNoise_mJy = 0.05
+rmsNoiseTemplateFile = "PAF_MKII_Tsys.dat" # None
+
+# Spatial sampling parameters
 beamMinFWHM_deg = 1.5/3600.0
 beamMajFWHM_deg = 2.5/3600.0
 beamPA_deg = 20.0
@@ -58,20 +63,9 @@ nPixDec = 100
 # Coordinate system ["EQU" or "GAL"]
 coordSys = "GAL"
 
-# Properties of injected Faraday thin point sources
-#-------------------------------------------------------------#
-# [0]        [1] [2]      [3]       [4]       [5]     [6]
-# fluxI_mJy, SI, fracPol, psi0_deg, RM_radm2, x_deg, y_deg
-#-------------------------------------------------------------#
-srcInLst = [ [5.0, -0.7, 0.2, 30.0, 19.0, 89.9981, +0.0001],
-             [10.0, -0.1, 0.6, 80.0, 10.0, 90.0010, -0.0020],
-             [15.0, -0.5, 0.7, 10.0, -50.0, 90.0016, +0.0023],
-             [9.0,  0.0, 0.1, 0.0, 60.0, 89.9979, +0.0025],
-             [7.0, -0.2, 0.5, 45.0, -32.0, 89.9970, -0.0027],
-             [2.3, +0.5, 0.7, 120.0, -90.0, 90.0026, +0.000],
-             [0.3, +0.0, 0.1, 120.0, -90.0, 90.0, +0.000]]
-#srcInLst = [ [15.0, -0.5, 0.7, 10.0, -50.0, 90.0016, +0.0023] ]
-#-------------------------------------------------------------#
+# Properties of injected sources are given by an external CSV catalogue file.
+# Two types of model may be specified, assuming a common flux & spectral index.
+
 freq0_Hz = startFreq_Hz  # Frequency at which the flux is specified
 
 # END USER EDITS -------------------------------------------------------------#
@@ -86,9 +80,14 @@ import astropy.io.fits as pf
 import astropy.wcs.wcs as pw
 
 from Imports.util_PPC import twodgaussian
-from Imports.util_PPC import create_IQU_spectra_RMthin
+from Imports.util_PPC import create_IQU_spectra_burn
+from Imports.util_PPC import create_IQU_spectra_diff 
+from Imports.util_PPC import csv_read_to_list
+from Imports.util_PPC import split_repeat_lst
+from Imports.util_PPC import calc_stats
 from Imports.util_FITS import strip_fits_dims
 from Imports.util_FITS import create_simple_fits_hdu
+from Imports.util_RM import extrap
 
 C = 2.99792458e8
 
@@ -104,18 +103,65 @@ def main():
     Stokes I, Q and U images. Each image corresponds to a single frequency
     channel in a data-cube. There are equal numbers of files for each of the
     3 Stokes parameters whose names are formatted as e.g.,'CH23_StokesQ.fits'.
-    The data is populated with a number of unresolved, Faraday thin sources
-    defined in a table at the the top of this script:
-
-      [ [fluxI_mJy, SI, fracPol, psi0_deg, RM_radm2, x_deg, y_deg], ... ]
     
-      fluxI_mJy ... flux of source in first channel (mJy)
-      SI        ... frequency spectral index
-      fracPol   ... fractional polarisation (constant across frequency range)
-      psi0_deg  ... intrinsic polarisation angle )
-      RM_radm2  ... rotation measure (rad/m^2)
-      x_deg     ... X-position coordinate (deg)
-      y_deg     ... Y-position coordinate (deg)
+    The data is populated with polarised sources whose properties are given
+    in an external CSV-format catalogue file. Two types of model may be 
+    specified, assuming a common flux & spectral index:
+
+        # MODEL TYPE 1: One or more components affected by Burn depolarisation.
+        #
+        # Column  |  Description
+        #---------------------------------------------------
+        # [0]     |  Model type (1)
+        # [1]     |  X coordinate (deg)
+        # [2]     |  Y coordinate (deg)
+        # [3]     |  Major axis (arcsec)
+        # [4]     |  Minor axis (arcsec)
+        # [5]     |  Position angle (deg)
+        # [6]     |  Total flux (mJy)
+        # [7]     |  Spectral index
+        # Component 1:
+        # [8]     |  Intrinsic polarisation angle (deg)
+        # [9]     |  Fractional polarisation
+        # [10]    |  Faraday depth (radians m^-2)
+        # [11]    |  Farday dispersion (radians m^-2)
+        # Component 2:
+        # [12]    |  Intrinsic polarisation angle (deg)
+        # [13]    |  Fractional polarisation
+        # [14]    |  Faraday depth (radians m^-2)
+        # [15]    |  Farday dispersion (radians m^-2)
+        # Component 3:
+        # [16]    |  ...
+        #---------------------------------------------------
+
+        # MODEL TYPE 2: One or more stacked layers with differential Faraday
+        # rotation (Sokoloff 1998, Eqn. 9).
+        #
+        # Column  |  Description
+        #---------------------------------------------------
+        # [0]     |  Model type (2)
+        # [1]     |  X coordinate (deg)
+        # [2]     |  Y coordinate (deg)
+        # [3]     |  Major axis (arcsec)
+        # [4]     |  Minor axis (arcsec)
+        # [5]     |  Position angle (deg)
+        # [6]     |  Total flux (mJy)
+        # [7]     |  Spectral index
+        # Component 1:
+        # [8]     |  Intrinsic polarisation angle (deg)
+        # [9]     |  Fractional polarisation
+        # [10]    |  Faraday depth (radians m^-2)
+        # Component 2:
+        # [11]    |  Intrinsic polarisation angle (deg)
+        # [12]    |  Fractional polarisation
+        # [13]    |  Faraday depth (radians m^-2)
+        # Component 3:
+        # [14]    |  ...
+        #---------------------------------------------------
+
+    Properties of the data (frequency sampling, noise etc.) are given at the
+    top of this script, including an optional template for the shape of the
+    noise curve.
 
     The beam may be elliptical and is set to a constant angular size as a
     function of frequency (i.e., assumes all data has been convolved to the
@@ -136,20 +182,31 @@ def main():
     # Parse the command line options
     parser = argparse.ArgumentParser(description=descStr,
                                  formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("inCatFile", metavar="catalogue.csv", nargs=1,
+                        help="Input catalogue file in CSV format")
     parser.add_argument("dataPath", metavar="PATH/TO/DATA",
                         default="testImageData/", nargs="?",
                         help="Path to new data directory [testImageData/]")
     args = parser.parse_args()
+    inCatFile = args.inCatFile[0]
     dataPath = args.dataPath
 
+    # Read the RMS noise template
+    noiseTemplate = None
+    try:
+        noiseTemplate = np.loadtxt(rmsNoiseTemplateFile, unpack=True)
+    except Exception:
+        print "Failed to load noise template. Assuming flat noise profile."
+    
     # Call the function to create FITS data
-    create_IQU_fits_data(dataPath, srcInLst, startFreq_Hz, endFreq_Hz, nChans,
-                         rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
-                         beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
-                         nPixRA, nPixDec, coordSys)
+    nSrc = create_IQU_fits_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz,
+                                nChans, rmsNoise_mJy, beamMinFWHM_deg,
+                                beamMajFWHM_deg, beamPA_deg, pixScale_deg,
+                                xCent_deg, yCent_deg, nPixRA, nPixDec,
+                                coordSys, noiseTemplate)
 
     # Print summary to user
-    catFile = dataPath.rstrip("/") + "/testCat.txt"
+    catOutFile = dataPath.rstrip("/") + "/testCat.txt"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
     print "-" * 80
@@ -159,14 +216,14 @@ def main():
           % dataPath.rstrip("/")
     print "> %d FITS images for each Stokes parameter IQU (one per channel)" \
           % nChans
-    print "> A simple catalogue in the file '%s' " % catFile
+    print "> A simple catalogue in the file '%s' " % catOutFile
     print "> A SQL catalogue description in the file '%s'" % sqlFile
     print
     print "To run the RM-pipeline execute the following commands in order:"
     print
     print "./1_verify_image_data.py %s/" % dataPath.rstrip("/")
     print "./2_create_image_session.py %s/ %s/ %s %s" % \
-          (sessionPath.rstrip("/"), dataPath.rstrip("/"), catFile, sqlFile)
+          (sessionPath.rstrip("/"), dataPath.rstrip("/"), catOutFile, sqlFile)
     print "# Edit the file '%s/inputs.config' (optional)" \
           % sessionPath.rstrip("/")
     print "./3_extract_spectra.py %s/"  % sessionPath.rstrip("/")
@@ -181,13 +238,31 @@ def main():
 
 
 #-----------------------------------------------------------------------------#
-def create_IQU_fits_data(dataPath, srcLst, startFreq_Hz, endFreq_Hz, nChans,
+def create_IQU_fits_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz, nChans,
                          rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
                          beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
-                         nPixRA, nPixDec, coordSys="EQU"):
+                         nPixRA, nPixDec, coordSys="EQU", noiseTemplate=None):
     """
     Create a set of FITS images corresponding to a Stokes I Q & U data-cube.
     """
+
+    # Sample frequency space and create noise array
+    freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
+    dFreqArr_Hz = np.diff(freqArr_Hz)
+    if noiseTemplate is None:
+        noiseArr = np.ones(freqArr_Hz.shape, dtype="f8")
+    else:
+        xp = noiseTemplate[0]
+        yp = noiseTemplate[1]
+        mDict = calc_stats(yp)
+        yp /= mDict["median"]
+        noiseArr = extrap(freqArr_Hz, xp, yp)
+        
+    # Check the catalogue file exists
+    if not os.path.exists(inCatFile):
+        print "Err: File does not exist '%s'." % inCatFile
+        sys.exit()
+    catInLst = csv_read_to_list(inCatFile, doFloat=True)
 
     # Create the output directory path
     print "Creating test dataset in '%s'" % dataPath
@@ -200,20 +275,17 @@ def create_IQU_fits_data(dataPath, srcLst, startFreq_Hz, endFreq_Hz, nChans,
         shutil.rmtree(dataPath, True)
     os.mkdir(dataPath)
 
-    # Create a catalogue file
-    catFile = dataPath + "/testCat.txt"
-    FH = open(catFile, "w")
-    FH.write("#Name x_deg  y_deg\n")
-    for i in range(len(srcLst)):
-        FH.write("Source%d %f %f\n" % ((i+1), srcLst[i][5], srcLst[i][6]))
-    FH.close()
+    # Open an output catalogue file
+    catOutFile = dataPath + "/testCat.txt"
+    outCatFH = open(catOutFile, "w")
+    outCatFH.write("#Name x_deg  y_deg\n")
 
     # Create a catalogue description file
     sqlFile = dataPath + "/testCatDesc.sql"
     FH = open(sqlFile, "w")
     descStr = """
 CREATE TABLE sourceCat (
-uniqueName varchar(20),
+uniqueName varchar(50),
 x_deg double,
 y_deg double);
     """
@@ -221,8 +293,6 @@ y_deg double);
     FH.close()
 
     # Create a simple HDU template
-    freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
-    dFreqArr_Hz = np.diff(freqArr_Hz)
     hduTmp = create_simple_fits_hdu(shape=(1, 1, nPixDec, nPixRA),
                                     freq_Hz=freqArr_Hz[0],
                                     dFreq_Hz=dFreqArr_Hz[0],
@@ -250,25 +320,61 @@ y_deg double);
     spectraILst = []
     spectraQLst = []
     spectraULst = []
+    coordLst_deg = []
     coordLst_pix = []
-    for row in srcLst:
-        IArr_Jy, QArr_Jy, UArr_Jy =\
-                  create_IQU_spectra_RMthin(freqArr_Hz,
-                                            row[0]/1e3,  # fluxI_mJy -> Jy
-                                            row[1],      # SI
-                                            row[2],      # fracPol
-                                            row[3],      # psi0_deg
-                                            row[4],      # RM_radm2
-                                            freq0_Hz)
+    successCount = 0
+    for i in range(len(catInLst)):
+        e = catInLst[i]
+        modelType = int(e[0])
+
+        # Type 1 = multiple Burn depolarisation affected components
+        if modelType==1:
+            
+            # Parse the parameters of multiple components
+            preLst, parmArr = split_repeat_lst(e[1:],7,4)
+            
+            # Create the model spectra from multiple thin components
+            # modified by external depolarisation
+            IArr_Jy, QArr_Jy, UArr_Jy = \
+                create_IQU_spectra_burn(freqArr_Hz = freqArr_Hz,
+                                        fluxI = preLst[5]/1e3, # mJy->Jy
+                                        SI = preLst[6],
+                                        fracPolArr = parmArr[0],
+                                        psi0Arr_deg = parmArr[1],
+                                        RMArr_radm2 = parmArr[2],
+                                        sigmaRMArr_radm2 = parmArr[3],
+                                        freq0_Hz = freq0_Hz)
+                
+        # Type 2 = multiple internal depolarisation affected components
+        elif modelType==2:
+            
+            # Parse the parameters of multiple components
+            preLst, parmArr = split_repeat_lst(e[1:],7,3)
+            
+            # Create the model spectra from multiple components
+            # modified by internal Faraday depolarisation
+            IArr_Jy, QArr_Jy, UArr_Jy = \
+                create_IQU_spectra_diff(freqArr_Hz = freqArr_Hz,
+                                        fluxI = preLst[5]/1e3, # mJy->Jy
+                                        SI = preLst[6],
+                                        fracPolArr = parmArr[0],
+                                        psi0Arr_deg = parmArr[1],
+                                        RMArr_radm2 = parmArr[2],
+                                        freq0_Hz = freq0_Hz)
+        else:
+            continue
+        
         spectraILst.append(IArr_Jy)
         spectraQLst.append(QArr_Jy)
         spectraULst.append(UArr_Jy)
-        [ (x_pix, y_pix) ] = wcs2D.wcs_world2pix([ (row[5], row[6]) ], 0)
-        coordLst_pix.append([x_pix, y_pix])
-        
+        coordLst_deg.append([preLst[0], preLst[1]])        
+        [ (x_pix, y_pix) ] = wcs2D.wcs_world2pix([ (preLst[0], preLst[1]) ], 0)
+        coordLst_pix.append([x_pix, y_pix])        
+        successCount +=1
+    
     # Loop through the frequency channels & create IQU files for each 
     for iChan in range(len(freqArr_Hz)):
-        for iSrc in range(len(srcLst)):
+        for iSrc in range(len(spectraILst)):
             params = [spectraILst[iSrc][iChan],  # amplitude
                       coordLst_pix[iSrc][0],     # X centre (pix)
                       coordLst_pix[iSrc][1],     # Y centre
@@ -289,13 +395,19 @@ y_deg double);
                 dataQArr += planeQ
                 dataUArr += planeU
 
+            # Add to the catalogue file
+            if iChan==0:
+                outCatFH.write("Source%d %f %f\n" % ((iSrc+1),
+                                                     coordLst_deg[iSrc][0],
+                                                     coordLst_deg[iSrc][1]))
         # Add the noise
-        dataIArr += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                     size=hduTmp.data.shape)
-        dataQArr += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                     size=hduTmp.data.shape)
-        dataUArr += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                     size=hduTmp.data.shape)
+        rmsNoise_Jy = rmsNoise_mJy/1e3
+        dataIArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
+                     noiseArr[iChan])
+        dataQArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
+                     noiseArr[iChan])
+        dataUArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
+                     noiseArr[iChan])
 
         # Write to the FITS files
         print "Writing FITS files for channel %s ..." % (iChan+1),
@@ -319,6 +431,11 @@ y_deg double);
         print "done."
         sys.stdout.flush()
 
+        
+    # Clean up
+    outCatFH.close()
+    
+    return successCount
 
 #-----------------------------------------------------------------------------#
 if __name__=="__main__":

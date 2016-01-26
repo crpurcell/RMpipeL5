@@ -7,10 +7,13 @@
 #                                                                             #
 # PURPOSE:  Create a small ASCII dataset for the purposes of testing the      #
 #           RM-pipeline. The script outputs a set ASCII files containing      #
-#           frequency and Stokes vesctors. Edit the values at the top of the  #
-#           script and run.                                                   #
+#           frequency and Stokes vectors based on source parameters read from #
+#           an input catalogue file. Properties of the output data are set    #
+#           in variables at the top of this script. A template describing the #
+#           shape of the rms noise curve may also be provided in an external  #
+#           ASCII file [freq_Hz, amp].                                        #
 #                                                                             #
-# MODIFIED: 24-November-2015 by C. Purcell                                    #
+# MODIFIED: 26-January-2016 by C. Purcell                                     #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -41,25 +44,18 @@
 # Example session path
 sessionPath = "testSessASCII/"
 
-# Data parameters
-startFreq_Hz =  1.0e9
-endFreq_Hz = 3.0e9
+# Frequency parameters
+startFreq_Hz =  0.7e9
+endFreq_Hz = 1.8e9
 nChans = 30
-rmsNoise_mJy = 0.1
 
-# Properties of injected Faraday thin point sources
-#-------------------------------------------------------------#
-# [0]        [1] [2]      [3]       [4]      
-# fluxI_mJy, SI, fracPol, psi0_deg, RM_radm2
-#-------------------------------------------------------------#
-srcInLst = [ [5.0, -0.7, 0.2, 30.0, 19.0],
-             [10.0, -0.1, 0.6, 80.0, 10.0],
-             [15.0, -0.5, 0.7, 10.0, -50.0],
-             [9.0,  0.0, 0.1, 0.0, 60.0],
-             [7.0, -0.2, 0.5, 45.0, -32.0],
-             [2.3, +0.5, 0.7, 120.0, -90.0],
-             [0.3, +0.0, 0.1, 120.0, -90.0]]
-#-------------------------------------------------------------#
+# Noise parameters
+rmsNoise_mJy = 0.1
+rmsNoiseTemplateFile = "PAF_MKII_Tsys.dat" # None
+
+# Properties of injected sources are given by an external CSV catalogue file.
+# Two types of model may be specified, assuming a common flux & spectral index.
+
 freq0_Hz = startFreq_Hz  # Frequency at which the flux is specified
 
 # END USER EDITS -------------------------------------------------------------#
@@ -73,10 +69,12 @@ import numpy as np
 import astropy.io.fits as pf
 import astropy.wcs.wcs as pw
 
-from Imports.util_PPC import twodgaussian
-from Imports.util_PPC import create_IQU_spectra_RMthin
-from Imports.util_FITS import strip_fits_dims
-from Imports.util_FITS import create_simple_fits_hdu
+from Imports.util_PPC import create_IQU_spectra_burn
+from Imports.util_PPC import create_IQU_spectra_diff
+from Imports.util_PPC import csv_read_to_list
+from Imports.util_PPC import split_repeat_lst 
+from Imports.util_PPC import calc_stats
+from Imports.util_RM import extrap
 
 C = 2.99792458e8
 
@@ -89,21 +87,68 @@ def main():
     # Help string to be shown using the -h option
     descStr = """
     Create a new dataset directory and populate it with ASCII files containing
-    Stokes I, Q and U spectra. Each file contains four columns corresponding to
-    [freq_Hz, StokesI_Jy, StokesQ_Jy, StokesU_Jy] vectors for one source.
-    The spectra are populated with Faraday thin sources defined in a table at
-    the the top of this script:
+    Stokes I, Q and U spectra. Each output file contains four columns
+    corresponding to [freq_Hz, StokesI_Jy, StokesQ_Jy, StokesU_Jy] vectors for
+    one source.
 
-      [ [fluxI_mJy, SI, fracPol, psi0_deg, RM_radm2], ... ]
-    
-      fluxI_mJy ... flux of source in first channel (mJy)
-      SI        ... frequency spectral index
-      fracPol   ... fractional polarisation (constant across frequency range)
-      psi0_deg  ... intrinsic polarisation angle )
-      RM_radm2  ... rotation measure (rad/m^2)
+    The spectra are populated with polarised sources whose properties are given
+    in an external CSV-format catalogue file. Two types of model may be 
+    specified, assuming a common flux & spectral index:
 
-    Please edit the variables at the top of the script to change the properties
-    of the output data.
+        # MODEL TYPE 1: One or more components affected by Burn depolarisation.
+        #
+        # Column  |  Description
+        #---------------------------------------------------
+        # [0]     |  Model type (1)
+        # [1]     |  X coordinate (deg)
+        # [2]     |  Y coordinate (deg)
+        # [3]     |  Major axis (arcsec)
+        # [4]     |  Minor axis (arcsec)
+        # [5]     |  Position angle (deg)
+        # [6]     |  Total flux (mJy)
+        # [7]     |  Spectral index
+        # Component 1:
+        # [8]     |  Intrinsic polarisation angle (deg)
+        # [9]     |  Fractional polarisation
+        # [10]    |  Faraday depth (radians m^-2)
+        # [11]    |  Farday dispersion (radians m^-2)
+        # Component 2:
+        # [12]    |  Intrinsic polarisation angle (deg)
+        # [13]    |  Fractional polarisation
+        # [14]    |  Faraday depth (radians m^-2)
+        # [15]    |  Farday dispersion (radians m^-2)
+        # Component 3:
+        # [16]    |  ...
+        #---------------------------------------------------
+
+        # MODEL TYPE 2: One or more stacked layers with differential Faraday
+        # rotation (Sokoloff 1998, Eqn. 9).
+        #
+        # Column  |  Description
+        #---------------------------------------------------
+        # [0]     |  Model type (2)
+        # [1]     |  X coordinate (deg)
+        # [2]     |  Y coordinate (deg)
+        # [3]     |  Major axis (arcsec)
+        # [4]     |  Minor axis (arcsec)
+        # [5]     |  Position angle (deg)
+        # [6]     |  Total flux (mJy)
+        # [7]     |  Spectral index
+        # Component 1:
+        # [8]     |  Intrinsic polarisation angle (deg)
+        # [9]     |  Fractional polarisation
+        # [10]    |  Faraday depth (radians m^-2)
+        # Component 2:
+        # [11]    |  Intrinsic polarisation angle (deg)
+        # [12]    |  Fractional polarisation
+        # [13]    |  Faraday depth (radians m^-2)
+        # Component 3:
+        # [14]    |  ...
+        #---------------------------------------------------
+
+    Properties of the data (frequency sampling, noise level) are given at the
+    top of this script, including an optional template for the shape of the
+    noise curve. 
 
     In addition to the ASCII files, the script outputs a simple ASCII catalogue
     and a SQL description of that catalogue. The catalogue file is used to
@@ -113,25 +158,35 @@ def main():
 
     Example:
 
-    ./0_mk_test_ascii_data.py testASCIIData/
+    ./0_mk_test_ascii_data.py catalogue.csv testASCIIData/
     """
 
     # Parse the command line options
     parser = argparse.ArgumentParser(description=descStr,
                                  formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument("inCatFile", metavar="catalogue.csv", nargs=1,
+                        help="Input catalogue file in CSV format")
     parser.add_argument("dataPath", metavar="PATH/TO/DATA",
                         default="testASCIIData/", nargs="?",
                         help="Path to new data directory [testASCIIData/]")
     args = parser.parse_args()
+    inCatFile = args.inCatFile[0]
     dataPath = args.dataPath
 
-    # Call the function to create FITS data
-    create_IQU_ascii_data(dataPath, srcInLst, startFreq_Hz, endFreq_Hz, nChans,
-                          rmsNoise_mJy)
+    # Read the RMS noise template
+    noiseTemplate = None
+    try:
+        noiseTemplate = np.loadtxt(rmsNoiseTemplateFile, unpack=True)
+    except Exception:
+        print "Failed to load noise template. Assuming flat noise profile."
+    
+    # Call the function to create the ASCII data files on disk
+    nSrc = create_IQU_ascii_data(dataPath, inCatFile, startFreq_Hz, 
+                                 endFreq_Hz, nChans, rmsNoise_mJy,
+                                 noiseTemplate)
 
-    # Print summary to user
-    nSrc = len(srcInLst)
-    catFile = dataPath.rstrip("/") + "/testCat.txt"
+    # Print summary to user 
+    outCatFile = dataPath.rstrip("/") + "/testCat.txt"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
     print "-" * 80
@@ -141,14 +196,14 @@ def main():
           % dataPath.rstrip("/")
     print "> %d ASCII files [freq, I, Q, U]" \
           % nSrc
-    print "> A simple catalogue in the file '%s' " % catFile
+    print "> A simple catalogue in the file '%s' " % outCatFile
     print "> A SQL catalogue description in the file '%s'" % sqlFile
     print
     print "To run the RM-pipeline execute the following commands in order:"
     print
     print "./1_verify_ascii_data.py %s/" % dataPath.rstrip("/")
     print "./2_create_ascii_session.py %s/ %s/ %s %s" % \
-          (sessionPath.rstrip("/"), dataPath.rstrip("/"),  catFile, sqlFile)
+          (sessionPath.rstrip("/"), dataPath.rstrip("/"),  outCatFile, sqlFile)
     print "# Edit the file '%s/inputs.config' (optional)" \
           % sessionPath.rstrip("/")
     print "./3_extract_spectra.py %s/"  % sessionPath.rstrip("/")
@@ -163,11 +218,26 @@ def main():
 
 
 #-----------------------------------------------------------------------------#
-def create_IQU_ascii_data(dataPath, srcLst, startFreq_Hz, endFreq_Hz, nChans,
-                          rmsNoise_mJy, x_deg=0.0, y_deg=0.0):
-    """
-    Create a set of ASCII files containing Stokes I Q & U spectra.
-    """
+def create_IQU_ascii_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz, 
+                          nChans, rmsNoise_mJy, noiseTemplate=None):
+    """Create a set of ASCII files containing Stokes I Q & U spectra."""
+
+    # Sample frequency space and create noise array
+    freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
+    if noiseTemplate is None:
+        noiseArr = np.ones(freqArr_Hz.shape, dtype="f8")
+    else:
+        xp = noiseTemplate[0]
+        yp = noiseTemplate[1]
+        mDict = calc_stats(yp)
+        yp /= mDict["median"]
+        noiseArr = extrap(freqArr_Hz, xp, yp)
+        
+    # Check the catalogue file exists
+    if not os.path.exists(inCatFile):
+        print "Err: File does not exist '%s'." % inCatFile
+        sys.exit()
+    catInLst = csv_read_to_list(inCatFile, doFloat=True)
 
     # Create the output directory path
     dataPath = dataPath.rstrip("/")
@@ -194,33 +264,68 @@ y_deg double);
     sqlFH.write("%s\n" % descStr)
     sqlFH.close()
 
-    # Open a catalogue file
-    catFile = dataPath + "/testCat.txt"
-    catFH = open(catFile, "w")
-    catFH.write("#Name fileName x_deg  y_deg\n")
+    # Open an output catalogue file
+    outCatFile = dataPath + "/testCat.txt"
+    outCatFH = open(outCatFile, "w")
+    outCatFH.write("#Name fileName x_deg  y_deg\n")
     
     # Loop through the sources, calculate the spectra and save to disk
-    freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
-    for i in range(len(srcLst)):
-        IArr_Jy, QArr_Jy, UArr_Jy = \
-                 create_IQU_spectra_RMthin(freqArr_Hz,
-                                           srcLst[i][0]/1e3,  # fluxI_mJy -> Jy
-                                           srcLst[i][1],      # SI
-                                           srcLst[i][2],      # fracPol
-                                           srcLst[i][3],      # psi0_deg
-                                           srcLst[i][4],      # RM_radm2
-                                           freq0_Hz)
+    successCount = 0
+    for i in range(len(catInLst)):
+        e = catInLst[i]
+        modelType = int(e[0])
+
+        # Type 1 = multiple Burn depolarisation affected components
+        if modelType==1:
+            
+            # Parse the parameters of multiple components
+            preLst, parmArr = split_repeat_lst(e[1:],7,4)
+            
+            # Create the model spectra from multiple thin components
+            # modified by external depolarisation
+            IArr_Jy, QArr_Jy, UArr_Jy = \
+                create_IQU_spectra_burn(freqArr_Hz = freqArr_Hz,
+                                        fluxI = preLst[5]/1e3, # mJy->Jy
+                                        SI = preLst[6],
+                                        fracPolArr = parmArr[0],
+                                        psi0Arr_deg = parmArr[1],
+                                        RMArr_radm2 = parmArr[2],
+                                        sigmaRMArr_radm2 = parmArr[3],
+                                        freq0_Hz = freq0_Hz)
+                
+        # Type 2 = multiple internal depolarisation affected components
+        elif modelType==2:
+            
+            # Parse the parameters of multiple components
+            preLst, parmArr = split_repeat_lst(e[1:],7,3)
+            
+            # Create the model spectra from multiple components
+            # modified by internal Faraday depolarisation
+            IArr_Jy, QArr_Jy, UArr_Jy = \
+                create_IQU_spectra_diff(freqArr_Hz = freqArr_Hz,
+                                        fluxI = preLst[5]/1e3, # mJy->Jy
+                                        SI = preLst[6],
+                                        fracPolArr = parmArr[0],
+                                        psi0Arr_deg = parmArr[1],
+                                        RMArr_radm2 = parmArr[2],
+                                        freq0_Hz = freq0_Hz)
+        else:
+            continue
         
-        # Add the Gaussian noise 
-        IArr_Jy += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                    size=IArr_Jy.shape)
-        QArr_Jy += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                    size=QArr_Jy.shape)
-        UArr_Jy += np.random.normal(scale=rmsNoise_mJy/1e3,  # mJy -> Jy
-                                    size=UArr_Jy.shape)
-        dIArr_Jy = np.ones_like(IArr_Jy) * rmsNoise_mJy/1e3  
-        dQArr_Jy = np.ones_like(QArr_Jy) * rmsNoise_mJy/1e3
-        dUArr_Jy = np.ones_like(UArr_Jy) * rmsNoise_mJy/1e3
+        # Add scatter to the data to simulate noise
+        rmsNoise_Jy = rmsNoise_mJy/1e3
+        IArr_Jy += (np.random.normal(scale=rmsNoise_Jy, size=IArr_Jy.shape)
+                    * noiseArr)
+        QArr_Jy += (np.random.normal(scale=rmsNoise_Jy, size=QArr_Jy.shape)
+                    * noiseArr)
+        UArr_Jy += (np.random.normal(scale=rmsNoise_Jy, size=UArr_Jy.shape)
+                    * noiseArr)
+        dIArr_Jy = noiseArr * rmsNoise_Jy
+        dIArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
+        dQArr_Jy = noiseArr * rmsNoise_Jy 
+        dQArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
+        dUArr_Jy = noiseArr * rmsNoise_Jy 
+        dUArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
         
         # Save spectra to disk
         outFileName = "Source%d.dat" % (i+1)
@@ -232,10 +337,17 @@ y_deg double);
         print "done."
         
         # Add to the catalogue file
-        catFH.write("Source%d %s %f %f\n" % ((i+1), outFileName, x_deg, y_deg))
+        outCatFH.write("Source%d %s %f %f\n" % ((i+1),
+                                                outFileName,
+                                                preLst[0],
+                                                preLst[1]))
+        successCount += 1
 
     # Clean up
-    catFH.close()
+    outCatFH.close()
+    
+    return successCount
+
 
 
 #-----------------------------------------------------------------------------#

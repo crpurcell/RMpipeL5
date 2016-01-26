@@ -7,7 +7,7 @@
 #                                                                             #
 # REQUIRED: Requires numpy and astropy.                                       #
 #                                                                             #
-# MODIFIED: 20-November-2015 by C. Purcell                                    #
+# MODIFIED: 18-January-2016 by C. Purcell                                     #
 #                                                                             #
 # CONTENTS:                                                                   #
 #                                                                             #
@@ -16,6 +16,8 @@
 #  PlotParms            ... class containing query and plotting parameters    #
 #  cleanup_str_input    ... condense multiple newlines and spaces in a string #
 #  config_read          ... read a key=value format text file                 #
+#  csv_read_to_list     ... read rows from a CSV file into a list of lists    #
+#  split_repeat_lst     ... split a list into preamble and repeating columns  #
 #  deg2dms              ... convert decimal degrees to dms string             #
 #  fail_not_exists      ... check for dir/file existence, exit if missing     #
 #  set_statusfile       ... set text in an ASCII status file                  #
@@ -35,6 +37,10 @@
 #  calc_stats           ... calculate the statistics of an array              #
 #  sort_nicely          ... sort a list in the order a human would            #
 #  twodgaussian         ... return an array containing a 2D Gaussian          #
+#  create_pqu_spectra_burn ... return fractional spectra for N burn sources   #
+#  create_IQU_spectra_burn ... return IQU spectra for N burn sources          #
+#  create_pqu_spectra_diff ... return fractional spectra for N mixed sources  #
+#  create_IQU_spectra_diff ... return IQU spectra for N mixed sources         #
 #  create_pqu_spectra_RMthin ... return fractional spectra for a thin source  #
 #  create_IQU_spectra_RMthin ... return IQU spectra for a thin source         #
 #  create_pqu_resid_RMthin ... return fractional spectra - a thin component   #
@@ -927,6 +933,57 @@ def config_read(filename, delim='=', doValueSplit=True):
 
 
 #-----------------------------------------------------------------------------#
+def csv_read_to_list(fileName, delim=",", doFloat=False):
+    """Read rows from an ASCII file into a list of lists."""
+
+    outLst = []
+    DATFILE = open(fileName, "r")
+     
+    # Compile a few useful regular expressions
+    spaces = re.compile('\s+')
+    comma_and_spaces = re.compile(',\s+')
+    comma_or_space = re.compile('[\s|,]')
+    brackets = re.compile('[\[|\]\(|\)|\{|\}]')
+    comment = re.compile('#.*')
+    quotes = re.compile('\'[^\']*\'')
+    keyVal = re.compile('^.+=.+')
+    words = re.compile('\S+')
+
+    # Read in the input file, line by line
+    for line in DATFILE:
+        line = line.rstrip("\n\r")
+        if comment.match(line):
+            continue
+        line = comment.sub('', line)     # remove internal comments
+        line = line.strip()              # kill external whitespace
+        line = spaces.sub(' ', line)     # shrink internal whitespace
+        if line=='':
+            continue
+        line = line.split(delim)
+        if len(line)<1:
+            continue
+        if doFloat:
+            line = [float(x) for x in line]
+        
+        outLst.append(line)
+
+    return outLst
+
+
+#-----------------------------------------------------------------------------#
+def split_repeat_lst(inLst, nPre, nRepeat):
+    """Split entries in a list into a preamble and repeating columns. The 
+    repeating entries are pushed into a 2D array of type float64."""
+
+
+    preLst = inLst[:nPre]
+    repeatLst = zip(*[iter(inLst[nPre:])]*nRepeat)
+    parmArr = np.array(repeatLst, dtype="f8").transpose()
+
+    return preLst, parmArr
+
+
+#-----------------------------------------------------------------------------#
 def deg2dms(deg, delim=':', doSign=False, nPlaces=2):
     """
     Convert a float in degrees to 'dd mm ss' format.
@@ -1300,11 +1357,149 @@ def twodgaussian(params, shape):
 
 
 #-----------------------------------------------------------------------------#
+def create_pqu_spectra_burn(freqArr_Hz, fracPolArr, psi0Arr_deg,
+                              RMArr_radm2, sigmaRMArr_radm2=None):
+    """Return fractional P/I, Q/I & U/I spectra for a sum of Faraday thin
+    components. Burn-law external depolarisation may be applied to each
+    component via the optional 'sigmaRMArr_radm2' argument. If
+    sigmaRMArr_radm2=None, all values are set to zero, i.e., no
+    depolarisation."""
+
+    # Convert lists to arrays
+    freqArr_Hz = np.array(freqArr_Hz, dtype="f8")
+    fracPolArr = np.array(fracPolArr, dtype="f8")
+    psi0Arr_deg = np.array(psi0Arr_deg, dtype="f8")
+    RMArr_radm2 = np.array(RMArr_radm2, dtype="f8")
+    if sigmaRMArr_radm2 is None:
+        sigmaRMArr_radm2 = np.zeros_like(fracPolArr)
+    else:
+        sigmaRMArr_radm2 = np.array(sigmaRMArr_radm2, dtype="f8")
+
+    # Calculate some prerequsites
+    nChans = len(freqArr_Hz)
+    nComps = len(fracPolArr)
+    lamArr_m = C/freqArr_Hz
+    lamSqArr_m2 = np.power(lamArr_m, 2.0)
+            
+    # Convert the inputs to column vectors
+    fracPolArr = fracPolArr.reshape((nComps, 1))
+    psi0Arr_deg = psi0Arr_deg.reshape((nComps, 1))
+    RMArr_radm2 = RMArr_radm2.reshape((nComps, 1))
+    sigmaRMArr_radm2 = sigmaRMArr_radm2.reshape((nComps, 1))
+    
+    # Calculate the p, q and u Spectra for all components
+    pArr = fracPolArr *  np.ones((nComps, nChans), dtype="f8")
+    quArr = pArr * (
+        np.exp( 2j * (np.radians(psi0Arr_deg) + RMArr_radm2*lamSqArr_m2) )
+        * np.exp(-2.0 * sigmaRMArr_radm2 * np.power(lamArr_m, 4.0))
+        )
+    
+    # Sum along the component axis to create the final spectra
+    quArr = quArr.sum(0)
+    qArr = quArr.real
+    uArr = quArr.imag
+    pArr = np.abs(quArr)
+    
+    return pArr, qArr, uArr
+
+
+#-----------------------------------------------------------------------------#
+def create_IQU_spectra_burn(freqArr_Hz, fluxI, SI, fracPolArr, psi0Arr_deg,
+                              RMArr_radm2, sigmaRMArr_radm2=None,
+                              freq0_Hz=None):
+    """Create Stokes I, Q & U spectra for a source with 1 or more polarised
+    Faraday components affected by external (burn) depolarisation."""
+    
+    # Create the polarised fraction spectra
+    pArr, qArr, uArr = create_pqu_spectra_burn(freqArr_Hz,
+                                               fracPolArr,
+                                               psi0Arr_deg,
+                                               RMArr_radm2,
+                                               sigmaRMArr_radm2)
+    
+    # Default reference frequency is first channel
+    if freq0_Hz is None:
+        freq0_Hz = freqArr_Hz[0]
+        
+    # Create the absolute value spectra
+    IArr = fluxI * np.power(freqArr_Hz/freq0_Hz, SI)
+    PArr = IArr * pArr
+    QArr = IArr * qArr
+    UArr = IArr * uArr
+    
+    return IArr, QArr, UArr
+
+
+#-----------------------------------------------------------------------------#
+def create_pqu_spectra_diff(freqArr_Hz, fracPolArr, psi0Arr_deg, RMArr_radm2):
+    """Return fractional P/I, Q/I & U/I spectra for a sum of Faraday 
+    components which are affected by internal (differential) Faraday
+    depolariation."""
+
+    # Convert lists to arrays
+    freqArr_Hz = np.array(freqArr_Hz, dtype="f8")
+    fracPolArr = np.array(fracPolArr, dtype="f8")
+    psi0Arr_rad = np.radians(psi0Arr_deg, dtype="f8")
+    RMArr_radm2 = np.array(RMArr_radm2, dtype="f8")
+
+    # Calculate some prerequsites
+    nChans = len(freqArr_Hz)
+    nComps = len(fracPolArr)
+    lamArr_m = C/freqArr_Hz
+    lamSqArr_m2 = np.power(lamArr_m, 2.0)
+
+    # Convert the inputs to column vectors
+    fracPolArr = fracPolArr.reshape((nComps, 1))
+    psi0Arr_deg = psi0Arr_deg.reshape((nComps, 1))
+    RMArr_radm2 = RMArr_radm2.reshape((nComps, 1))
+
+    # Calculate the p, q and u Spectra for all components
+    RMLamSqArr = RMArr_radm2*lamSqArr_m2
+    pArr = fracPolArr * np.sinc(RMLamSqArr/np.pi)
+    pArr = pArr.astype("complex")
+    for i in range(nComps):
+        RMLamSqArr[i] *= 0.5
+        pArr[i] *= np.exp(2j * (psi0Arr_rad[i] + RMLamSqArr[i:].sum(0)))
+    
+    # Sum along the component axis to create the final spectra
+    pArr =pArr.sum(0)
+    qArr = pArr.real
+    uArr = pArr.imag
+    pArr = np.abs(pArr)
+    
+    return pArr, qArr, uArr
+
+
+#-----------------------------------------------------------------------------#
+def create_IQU_spectra_diff(freqArr_Hz, fluxI, SI, fracPolArr, psi0Arr_deg,
+                              RMArr_radm2, freq0_Hz=None):
+    """Create Stokes I, Q & U spectra for a source with 1 or more polarised
+    Faraday components affected by internal Faraday depolarisation"""
+    
+    # Create the polarised fraction spectra
+    pArr, qArr, uArr = create_pqu_spectra_diff(freqArr_Hz,
+                                               fracPolArr,
+                                               psi0Arr_deg,
+                                               RMArr_radm2)
+    
+    # Default reference frequency is first channel
+    if freq0_Hz is None:
+        freq0_Hz = freqArr_Hz[0]
+        
+    # Create the absolute value spectra
+    IArr = fluxI * np.power(freqArr_Hz/freq0_Hz, SI)
+    PArr = IArr * pArr
+    QArr = IArr * qArr
+    UArr = IArr * uArr
+    
+    return IArr, QArr, UArr
+
+    
+#-----------------------------------------------------------------------------#
 def create_pqu_spectra_RMthin(freqArr_Hz, fracPol, psi0_deg, RM_radm2):
     """Return fractional P/I, Q/I & U/I spectra for a Faraday thin source"""
     
     # Calculate the p, q and u Spectra
-    pArr = fracPol * np.ones_like(freqArr_Hz)
     lamSqArr_m2 = np.power(C/freqArr_Hz, 2.0)
     pArr = fracPol * np.ones_like(lamSqArr_m2)
     quArr = pArr * np.exp( 2j * (np.radians(psi0_deg) +
