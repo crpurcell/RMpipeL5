@@ -10,7 +10,7 @@
 #           containing unresolved sources. Edit the values at the top of the  #
 #           script and run.                                                   #
 #                                                                             #
-# MODIFIED: 26-January-2016 by C. Purcell                                     #
+# MODIFIED: 29-January-2016 by C. Purcell                                     #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -38,17 +38,10 @@
 #                                                                             #
 #=============================================================================#
 
-# Example session path
-sessionPath = "testSessionImage/"
-
 # Frequency parameters
 startFreq_Hz = 0.7e9
 endFreq_Hz =  1.8e9
 nChans = 30
-
-# Noise parameters
-rmsNoise_mJy = 0.05
-rmsNoiseTemplateFile = "PAF_MKII_Tsys.dat" # None
 
 # Spatial sampling parameters
 beamMinFWHM_deg = 1.5/3600.0
@@ -57,16 +50,22 @@ beamPA_deg = 20.0
 pixScale_deg = 0.3/3600.0
 xCent_deg = 90.0
 yCent_deg = 0.0
-nPixRA = 120
-nPixDec = 100
+nPixX = 120
+nPixY = 100
 
 # Coordinate system ["EQU" or "GAL"]
 coordSys = "GAL"
 
+# Noise level
+rmsNoise_mJy = 0.05
+
+# Variations in the noise vs frequency can be specified in an external file.
+
 # Properties of injected sources are given by an external CSV catalogue file.
 # Two types of model may be specified, assuming a common flux & spectral index.
 
-freq0_Hz = startFreq_Hz  # Frequency at which the flux is specified
+# Frequency at which the flux is specified in the catalogue
+freq0_Hz = startFreq_Hz
 
 # END USER EDITS -------------------------------------------------------------#
 
@@ -187,25 +186,40 @@ def main():
     parser.add_argument("dataPath", metavar="PATH/TO/DATA",
                         default="testImageData/", nargs="?",
                         help="Path to new data directory [testImageData/]")
+    parser.add_argument('-n', dest='noiseTmpFile', metavar="NOISE.TXT",
+                        help="File providing a template noise curve")
+    parser.add_argument('-f', dest='flagFreqStr', metavar='f1,f2,f1,f2,...',
+                        default="", help="Frequency ranges to flag out")
     args = parser.parse_args()
     inCatFile = args.inCatFile[0]
     dataPath = args.dataPath
+    noiseTmpFile = args.noiseTmpFile
+    flagRanges_Hz = []
+    if len(args.flagFreqStr)>0:
+        try:
+            flagFreqLst = args.flagFreqStr.split(",")
+            flagFreqLst = [float(x) for x in flagFreqLst]
+            flagRanges_Hz = zip(*[iter(flagFreqLst)]*2)
+        except Exception:
+            "Warn: Failed to parse frequency flagging string!"
 
     # Read the RMS noise template
-    noiseTemplate = None
     try:
-        noiseTemplate = np.loadtxt(rmsNoiseTemplateFile, unpack=True)
+        noiseTmpArr = np.loadtxt(noiseTmpFile, unpack=True)
     except Exception:
-        print "Failed to load noise template. Assuming flat noise profile."
+        noiseTmpArr = None
+        print "Failed to load noise template '%s'." % noiseTmpFile
+        print "Assuming flat noise profile."
     
     # Call the function to create FITS data
     nSrc = create_IQU_fits_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz,
                                 nChans, rmsNoise_mJy, beamMinFWHM_deg,
                                 beamMajFWHM_deg, beamPA_deg, pixScale_deg,
-                                xCent_deg, yCent_deg, nPixRA, nPixDec,
-                                coordSys, noiseTemplate)
+                                xCent_deg, yCent_deg, nPixX, nPixY,
+                                coordSys, noiseTmpArr, flagRanges_Hz)
 
     # Print summary to user
+    sessionPath = "testSessImage/"
     catOutFile = dataPath.rstrip("/") + "/testCat.txt"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
@@ -241,19 +255,27 @@ def main():
 def create_IQU_fits_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz, nChans,
                          rmsNoise_mJy, beamMinFWHM_deg, beamMajFWHM_deg,
                          beamPA_deg, pixScale_deg, xCent_deg, yCent_deg,
-                         nPixRA, nPixDec, coordSys="EQU", noiseTemplate=None):
+                         nPixX, nPixY, coordSys="EQU", noiseTmpArr=None,
+                          flagRanges_Hz=[]):
     """
     Create a set of FITS images corresponding to a Stokes I Q & U data-cube.
     """
 
-    # Sample frequency space and create noise array
+    # Sample frequency space and flag the bad frequency ranges   
     freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
     dFreqArr_Hz = np.diff(freqArr_Hz)
-    if noiseTemplate is None:
+    for i in range(len(freqArr_Hz)):
+        for fRng in flagRanges_Hz:            
+            if freqArr_Hz[i]>=fRng[0] and freqArr_Hz[i]<=fRng[1]:
+                freqArr_Hz[i]=np.nan
+    freqArr_Hz = freqArr_Hz[np.where(freqArr_Hz==freqArr_Hz)]
+
+    # Create normalised noise array from a template or assume all ones.
+    if noiseTmpArr is None:
         noiseArr = np.ones(freqArr_Hz.shape, dtype="f8")
     else:
-        xp = noiseTemplate[0]
-        yp = noiseTemplate[1]
+        xp = noiseTmpArr[0]
+        yp = noiseTmpArr[1]
         mDict = calc_stats(yp)
         yp /= mDict["median"]
         noiseArr = extrap(freqArr_Hz, xp, yp)
@@ -293,7 +315,7 @@ y_deg double);
     FH.close()
 
     # Create a simple HDU template
-    hduTmp = create_simple_fits_hdu(shape=(1, 1, nPixDec, nPixRA),
+    hduTmp = create_simple_fits_hdu(shape=(1, 1, nPixY, nPixX),
                                     freq_Hz=freqArr_Hz[0],
                                     dFreq_Hz=dFreqArr_Hz[0],
                                     xCent_deg=xCent_deg,
@@ -306,7 +328,7 @@ y_deg double);
                                     system=coordSys)
     head2D = strip_fits_dims(header=hduTmp.header, minDim=2, forceCheckDims=4)
     wcs2D = pw.WCS(head2D)
-    shape2D = (nPixDec, nPixRA)
+    shape2D = (nPixY, nPixX)
 
     # Calculate some beam parameters
     gfactor = 2.0*m.sqrt(2.0*m.log(2.0))
@@ -402,12 +424,12 @@ y_deg double);
                                                      coordLst_deg[iSrc][1]))
         # Add the noise
         rmsNoise_Jy = rmsNoise_mJy/1e3
-        dataIArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
-                     noiseArr[iChan])
-        dataQArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
-                     noiseArr[iChan])
-        dataUArr += (np.random.normal(scale=rmsNoise_Jy, size=hduTmp.data.shape) *
-                     noiseArr[iChan])
+        dataIArr += (np.random.normal(scale=rmsNoise_Jy,
+                                      size=hduTmp.data.shape)* noiseArr[iChan])
+        dataQArr += (np.random.normal(scale=rmsNoise_Jy,
+                                      size=hduTmp.data.shape)* noiseArr[iChan])
+        dataUArr += (np.random.normal(scale=rmsNoise_Jy,
+                                      size=hduTmp.data.shape)* noiseArr[iChan])
 
         # Write to the FITS files
         print "Writing FITS files for channel %s ..." % (iChan+1),
@@ -430,7 +452,6 @@ y_deg double);
         pf.writeto(fitsFileOut, dataUArr, hduTmp.header)
         print "done."
         sys.stdout.flush()
-
         
     # Clean up
     outCatFH.close()

@@ -9,8 +9,8 @@
 # run the Level-5 RM-pipeline on the data.
 
 
-./0_mk_test_ascii_data.py catalogue.csv testASCIIData/
-./1_verify_ascii_data.py testASCIIData/ 
+./0_mk_test_ascii_data.py -n PAF_MKII_Tsys.dat -f 1.0e9,1.3e9 catalogue.csv testASCIIData/
+./1_verify_ascii_data.py testASCIIData/
 ./2_create_session.py -o testSessionASCII/ testASCIIData/ testASCIIData/testCat.txt testASCIIData/testCatDesc.sql
 #> Edit the file 'testSessionASCII/inputs.config' to modify default pipeline inputs.
 ./3_extract_spectra.py testSessionASCII/
@@ -21,7 +21,7 @@
 
 # OR:
 
-./0_mk_test_image_data.py catalogue.csv testImageData/
+./0_mk_test_image_data.py -n PAF_MKII_Tsys.dat -f 1.0e9,1.3e9  catalogue.csv testImageData/
 ./1_verify_image_data.py testImageData/
 ./2_create_session.py -o testSessionImage/ testImageData/ testImageData/testCat.txt testImageData/testCatDesc.sql
 #> Edit the file 'testSessionImage/inputs.config' to modify default pipeline inputs.

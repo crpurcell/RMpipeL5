@@ -13,7 +13,7 @@
 #           shape of the rms noise curve may also be provided in an external  #
 #           ASCII file [freq_Hz, amp].                                        #
 #                                                                             #
-# MODIFIED: 26-January-2016 by C. Purcell                                     #
+# MODIFIED: 29-January-2016 by C. Purcell                                     #
 #                                                                             #
 #=============================================================================#
 #                                                                             #
@@ -41,22 +41,21 @@
 #                                                                             #
 #=============================================================================#
 
-# Example session path
-sessionPath = "testSessASCII/"
-
 # Frequency parameters
-startFreq_Hz =  0.7e9
+startFreq_Hz = 0.7e9
 endFreq_Hz = 1.8e9
-nChans = 30
+nChans = 1100
 
-# Noise parameters
+# Noise level
 rmsNoise_mJy = 0.1
-rmsNoiseTemplateFile = "PAF_MKII_Tsys.dat" # None
+
+# Variations in the noise vs frequency can be specified in an external file.
 
 # Properties of injected sources are given by an external CSV catalogue file.
 # Two types of model may be specified, assuming a common flux & spectral index.
 
-freq0_Hz = startFreq_Hz  # Frequency at which the flux is specified
+# Frequency at which the flux is specified in the catalogue
+freq0_Hz = startFreq_Hz
 
 # END USER EDITS -------------------------------------------------------------#
 
@@ -169,23 +168,39 @@ def main():
     parser.add_argument("dataPath", metavar="PATH/TO/DATA",
                         default="testASCIIData/", nargs="?",
                         help="Path to new data directory [testASCIIData/]")
+    parser.add_argument('-n', dest='noiseTmpFile', metavar="NOISE.TXT",
+                        help="File providing a template noise curve")
+    parser.add_argument('-f', dest='flagFreqStr', metavar='f1,f2,f1,f2,...',
+                        default="", help="Frequency ranges to flag out")
     args = parser.parse_args()
     inCatFile = args.inCatFile[0]
     dataPath = args.dataPath
+    noiseTmpFile = args.noiseTmpFile
+    flagRanges_Hz = []
+    if len(args.flagFreqStr)>0:
+        try:
+            flagFreqLst = args.flagFreqStr.split(",")
+            flagFreqLst = [float(x) for x in flagFreqLst]
+            flagRanges_Hz = zip(*[iter(flagFreqLst)]*2)
+        except Exception:
+            "Warn: Failed to parse frequency flagging string!"
 
     # Read the RMS noise template
-    noiseTemplate = None
     try:
-        noiseTemplate = np.loadtxt(rmsNoiseTemplateFile, unpack=True)
+        noiseTmpArr = np.loadtxt(noiseTmpFile, unpack=True)
     except Exception:
-        print "Failed to load noise template. Assuming flat noise profile."
+        noiseTmpArr = None
+        print "Failed to load noise template '%s'." % noiseTmpFile
+        print "Assuming flat noise profile."
+        
     
     # Call the function to create the ASCII data files on disk
-    nSrc = create_IQU_ascii_data(dataPath, inCatFile, startFreq_Hz, 
+    nSrc = create_IQU_ascii_data(dataPath, inCatFile, startFreq_Hz,
                                  endFreq_Hz, nChans, rmsNoise_mJy,
-                                 noiseTemplate)
+                                 noiseTmpArr, flagRanges_Hz)
 
     # Print summary to user 
+    sessionPath = "testSessASCII/"
     outCatFile = dataPath.rstrip("/") + "/testCat.txt"
     sqlFile = dataPath.rstrip("/") + "/testCatDesc.sql"
     print
@@ -219,16 +234,24 @@ def main():
 
 #-----------------------------------------------------------------------------#
 def create_IQU_ascii_data(dataPath, inCatFile, startFreq_Hz, endFreq_Hz, 
-                          nChans, rmsNoise_mJy, noiseTemplate=None):
+                          nChans, rmsNoise_mJy, noiseTmpArr=None,
+                          flagRanges_Hz=[]):
     """Create a set of ASCII files containing Stokes I Q & U spectra."""
 
-    # Sample frequency space and create noise array
+    # Sample frequency space and flag the bad frequency ranges   
     freqArr_Hz = np.linspace(startFreq_Hz, endFreq_Hz, nChans)
-    if noiseTemplate is None:
+    for i in range(len(freqArr_Hz)):
+        for fRng in flagRanges_Hz:            
+            if freqArr_Hz[i]>=fRng[0] and freqArr_Hz[i]<=fRng[1]:
+                freqArr_Hz[i]=np.nan
+    freqArr_Hz = freqArr_Hz[np.where(freqArr_Hz==freqArr_Hz)]
+
+    # Create normalised noise array from a template or assume all ones.
+    if noiseTmpArr is None:
         noiseArr = np.ones(freqArr_Hz.shape, dtype="f8")
     else:
-        xp = noiseTemplate[0]
-        yp = noiseTemplate[1]
+        xp = noiseTmpArr[0]
+        yp = noiseTmpArr[1]
         mDict = calc_stats(yp)
         yp /= mDict["median"]
         noiseArr = extrap(freqArr_Hz, xp, yp)
@@ -321,11 +344,11 @@ y_deg double);
         UArr_Jy += (np.random.normal(scale=rmsNoise_Jy, size=UArr_Jy.shape)
                     * noiseArr)
         dIArr_Jy = noiseArr * rmsNoise_Jy
-        dIArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
+        dIArr_Jy *= np.random.normal(loc=1.0, scale=0.05, size=noiseArr.shape)
         dQArr_Jy = noiseArr * rmsNoise_Jy 
-        dQArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
+        dQArr_Jy *= np.random.normal(loc=1.0, scale=0.05, size=noiseArr.shape)
         dUArr_Jy = noiseArr * rmsNoise_Jy 
-        dUArr_Jy *= np.random.normal(loc=1.0, scale=0.01, size=noiseArr.shape)
+        dUArr_Jy *= np.random.normal(loc=1.0, scale=0.05, size=noiseArr.shape)
         
         # Save spectra to disk
         outFileName = "Source%d.dat" % (i+1)
